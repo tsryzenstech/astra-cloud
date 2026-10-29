@@ -31,10 +31,17 @@ The astraOS app store (Market) and AstraID, in one Node.js server with no depend
 
 **Backups:** copy the `data/` folder (database and apkg files) and keep `MASTER_KEY` somewhere safe.
 
+## Market's Today page and default apps
+
+- **Today**: admins write the cards on `/admin/` (features, lists, tips, App and Game of the Day for a date). Without a
+  chosen App or Game of the Day, Market picks one from the catalog each day. Market reads `/api/store/today`.
+- **Default apps**: every `seed/<package>.apkg` (with an optional `seed/<package>.json` page) is published by the first
+  admin when the server starts, and updated when a newer versionCode is dropped in. **WhatsAstra** ships this way.
+
 ## Running locally
 
 ```bash
-MASTER_KEY=$(openssl rand -hex 32) ADMIN_EMAIL=me@example.com ADMIN_PASSWORD=changeme123 node --experimental-sqlite server.js
+MASTER_KEY=$(openssl rand -hex 32) ADMIN_EMAIL=me@example.com ADMIN_PASSWORD=changeme123 node server.js
 ```
 
 ## Publishing from CI

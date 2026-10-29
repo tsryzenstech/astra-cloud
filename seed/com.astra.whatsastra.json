@@ -1,0 +1,16 @@
+{
+    "name": "WhatsAstra",
+    "summary": "WhatsApp on astraOS",
+    "description": "WhatsAstra brings WhatsApp to astraOS through WhatsApp Web.\n\nOpen it, then on your main phone go to WhatsApp > Linked devices > Link a device and scan the QR code. Your chats, voice notes and photos stay in sync, and new messages arrive as notifications.\n\nWhatsAstra is not made by or affiliated with WhatsApp or Meta.",
+    "category": "Social",
+    "website": "https://github.com/tsryzenstech/whatsastra",
+    "featured": true,
+    "notes": "First release: chats, notifications with the unread count, attachments from Files, downloads, zoom, spell check.",
+    "story": {
+        "eyebrow": "NEW ON ASTRAOS",
+        "title": "Your chats, now on astraOS",
+        "subtitle": "WhatsAstra links to WhatsApp in seconds",
+        "body": "Scan one QR code from your main phone and every chat is here: voice notes, photos, groups and notifications.",
+        "color": "#128C7E"
+    }
+}

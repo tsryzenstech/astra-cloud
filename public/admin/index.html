@@ -20,8 +20,8 @@ async function start() {
     main.innerHTML = `<div class="card"><h2>Admins only</h2><p class="muted">Sign in from the <a href="/dev/">developer panel</a> with the admin account.</p></div>`;
     return;
   }
-  const [requests, users, apps] = await Promise.all([
-    api("GET", "/api/admin/dev-requests"), api("GET", "/api/admin/users"), api("GET", "/api/dev/apps")]);
+  const [requests, users, apps, stories] = await Promise.all([
+    api("GET", "/api/admin/dev-requests"), api("GET", "/api/admin/users"), api("GET", "/api/dev/apps"), api("GET", "/api/admin/stories")]);
   main.innerHTML = `
     <h1>Admin</h1>
     <section><h2>Developer requests</h2><div class="list">${requests.map((d) => `
@@ -36,6 +36,28 @@ async function start() {
       <div class="item"><div class="grow"><b>${esc(a.name)}</b> <span class="small">${esc(a.package)} · ${a.published ? "published" : "draft"} · ${a.downloads} downloads</span></div>
         <label style="margin:0"><input type="checkbox" data-feature="${esc(a.package)}" ${a.featured ? "checked" : ""} style="width:auto"> Featured</label>
         <a class="btn sm secondary" href="/dev/">Manage</a></div>`).join("") || `<div class="item muted">No apps</div>`}</div></section>
+    <section><h2>Market: Today</h2>
+      <p class="muted">Cards on Market's Today page. “App of the Day” and “Game of the Day” with a date show only that day; without one, Market picks an app itself.</p>
+      <div class="list">${stories.map((st) => `
+        <div class="item"><div style="width:12px;height:44px;border-radius:6px;background:${esc(st.color)}"></div>
+          <div class="grow"><span class="small">${esc(st.kind.replace(/_/g, " "))}${st.day ? " · " + esc(st.day) : ""}${st.published ? "" : " · hidden"}</span><br>
+          <b>${esc(st.title)}</b> <span class="small">${esc(st.subtitle)}</span><br>
+          <span class="small">${st.apps.map((a) => esc(a.name)).join(", ")}</span></div>
+          <label class="btn sm secondary" style="cursor:pointer">Image<input type="file" accept="image/*" data-image="${st.id}" style="display:none"></label>
+          <button class="btn sm danger" data-delstory="${st.id}">Delete</button></div>`).join("") || `<div class="item muted">No stories yet</div>`}</div>
+      <form id="story" class="card" style="margin-top:16px">
+        <div class="row"><div><label>Kind</label><select name="kind">
+          <option value="feature">Feature</option><option value="app_of_day">App of the Day</option><option value="game_of_day">Game of the Day</option>
+          <option value="list">List</option><option value="tip">Tip</option></select></div>
+          <div><label>Eyebrow</label><input name="eyebrow" placeholder="NEW UPDATE" maxlength="60"></div></div>
+        <label>Title</label><input name="title" required maxlength="120">
+        <label>Subtitle</label><input name="subtitle" maxlength="200">
+        <label>Text</label><textarea name="body" rows="4"></textarea>
+        <div class="row"><div><label>Apps (packages, comma separated)</label><input name="packages" placeholder="${esc(apps.slice(0, 2).map((a) => a.package).join(", "))}"></div>
+          <div><label>Color</label><input name="color" type="color" value="#7B2FF7" style="height:46px"></div></div>
+        <div class="row"><div><label>Day (optional)</label><input name="day" type="date"></div><div><label>Position</label><input name="position" type="number" value="0"></div></div>
+        <p><button class="btn">Add to Today</button></p>
+      </form></section>
     <section><h2>Accounts</h2><div class="list">${users.map((u) => `
       <div class="item"><div class="grow"><b>${esc(u.name)}</b> <span class="small">${esc(u.email)}</span></div>
         <span class="pill">${esc(u.role)}</span><span class="small">${ago(u.created)}</span></div>`).join("")}</div></section>`;
@@ -50,6 +72,16 @@ async function start() {
     };
   for (const b of main.querySelectorAll("[data-reject]"))
     b.onclick = async () => { await api("POST", `/api/admin/dev-requests/${b.dataset.reject}/reject`); start(); };
+  document.getElementById("story").onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    d.packages = d.packages.split(",").map((x) => x.trim()).filter(Boolean);
+    try { await api("POST", "/api/admin/stories", d); toast("Added to Today"); start(); } catch (err) { toast(err.message); }
+  };
+  for (const b of main.querySelectorAll("[data-delstory]"))
+    b.onclick = async () => { if (confirm("Delete this story?")) { await api("DELETE", `/api/admin/stories/${b.dataset.delstory}`); start(); } };
+  for (const f of main.querySelectorAll("[data-image]"))
+    f.onchange = async () => { await api("PUT", `/api/admin/stories/${f.dataset.image}/image`, undefined, f.files[0]); toast("Image uploaded"); start(); };
   for (const c of main.querySelectorAll("[data-feature]"))
     c.onchange = async () => { await api("POST", `/api/admin/apps/${encodeURIComponent(c.dataset.feature)}/feature`, { featured: c.checked }); toast("Saved"); };
 }

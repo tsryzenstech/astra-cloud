@@ -30,7 +30,8 @@ const MASTER = sec.masterKey(env);
 const SECURE_COOKIE = PUBLIC_URL.startsWith("https://");
 
 const db = openDatabase(DATA);
-const FILES = { apps: path.join(DATA, "apps"), icons: path.join(DATA, "icons"), screens: path.join(DATA, "screens") };
+const FILES = { apps: path.join(DATA, "apps"), icons: path.join(DATA, "icons"), screens: path.join(DATA, "screens"),
+                stories: path.join(DATA, "stories") };
 for (const d of Object.values(FILES)) fs.mkdirSync(d, { recursive: true });
 const now = () => Date.now();
 const q = (sql) => db.prepare(sql);
@@ -255,6 +256,97 @@ function iconType(file) {
   return "image/svg+xml";
 }
 
+// ---- Market: Today page ------------------------------------------------------------------
+function storyView(s) {
+  const apps = JSON.parse(s.packages || "[]")
+    .map((pkg) => q("SELECT * FROM apps WHERE package = ? AND published = 1").get(pkg))
+    .filter(Boolean).map(catalogEntry).filter(Boolean);
+  return {
+    id: s.id, kind: s.kind, eyebrow: s.eyebrow, title: s.title, subtitle: s.subtitle, body: s.body, color: s.color,
+    image: s.has_image ? `${PUBLIC_URL}/files/stories/${s.id}?${s.created}` : "", day: s.day, apps,
+  };
+}
+const today = () => new Date().toISOString().slice(0, 10);
+
+// The Today page Market shows first: cards of the day, App and Game of the
+// Day (picked from the catalog when no admin chose one), charts, new apps.
+r.get("/api/store/today", async (req, res) => {
+  const day = today();
+  const published = q("SELECT * FROM apps WHERE published = 1").all().filter((a) => latest(a.package));
+  const stories = q("SELECT * FROM stories WHERE published = 1 AND (day = '' OR day = ?) ORDER BY position, created DESC")
+    .all(day).map(storyView);
+  // A different app every day, the same one for everybody.
+  const seed = [...day].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const pick = (list) => (list.length ? catalogEntry(list[seed % list.length]) : null);
+  const games = published.filter((a) => a.category === "Games");
+  const others = published.filter((a) => a.category !== "Games");
+  const ofDay = (kind, list, eyebrow) => {
+    const chosen = stories.find((s) => s.kind === kind);
+    if (chosen) return chosen;
+    const app = pick(list);
+    return app ? { id: 0, kind, eyebrow, title: app.name, subtitle: app.summary, body: "", color: "#FF7A00", image: "", apps: [app] } : null;
+  };
+  send(res, 200, {
+    date: day,
+    appOfTheDay: ofDay("app_of_day", others.filter((a) => a.featured).length ? others.filter((a) => a.featured) : others, "APP OF THE DAY"),
+    gameOfTheDay: ofDay("game_of_day", games, "GAME OF THE DAY"),
+    stories: stories.filter((s) => s.kind !== "app_of_day" && s.kind !== "game_of_day"),
+    top: published.slice().sort((a, b) => b.downloads - a.downloads).slice(0, 10).map(catalogEntry),
+    fresh: published.slice().sort((a, b) => b.created - a.created).slice(0, 10).map(catalogEntry),
+    categories: [...new Set(published.map((a) => a.category))].sort(),
+  }, { "Cache-Control": "public, max-age=120" });
+});
+r.get("/files/stories/:id", async (req, res, p) => sendFile(res, path.join(FILES.stories, String(Number(p.id))), iconType(path.join(FILES.stories, String(Number(p.id))))));
+
+// Admins write the stories.
+function storyFields(b, base = {}) {
+  const kinds = ["feature", "app_of_day", "game_of_day", "list", "tip"];
+  return {
+    kind: kinds.includes(b.kind) ? b.kind : base.kind || "feature",
+    eyebrow: clean(b.eyebrow ?? base.eyebrow, 60), title: clean(b.title ?? base.title, 120) || "Untitled",
+    subtitle: clean(b.subtitle ?? base.subtitle, 200), body: clean(b.body ?? base.body, 8000),
+    packages: JSON.stringify((Array.isArray(b.packages) ? b.packages : JSON.parse(base.packages || "[]")).map((x) => clean(x, 120)).slice(0, 12)),
+    color: /^#[0-9a-fA-F]{6}$/.test(b.color || "") ? b.color : base.color || "#7B2FF7",
+    day: /^\d{4}-\d{2}-\d{2}$/.test(b.day || "") ? b.day : b.day === "" ? "" : base.day || "",
+    position: Number.isFinite(Number(b.position)) ? Number(b.position) : base.position || 0,
+    published: b.published === undefined ? (base.published ?? 1) : b.published ? 1 : 0,
+  };
+}
+r.get("/api/admin/stories", async (req, res) => {
+  need(req, "admin");
+  send(res, 200, q("SELECT * FROM stories ORDER BY day DESC, position, created DESC").all().map((s) => ({ ...storyView(s), published: !!s.published, packages: JSON.parse(s.packages), position: s.position })));
+});
+r.post("/api/admin/stories", async (req, res) => {
+  need(req, "admin");
+  const f = storyFields(await readJson(req));
+  const info = q("INSERT INTO stories (kind, eyebrow, title, subtitle, body, packages, color, day, position, published, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(f.kind, f.eyebrow, f.title, f.subtitle, f.body, f.packages, f.color, f.day, f.position, f.published, now());
+  send(res, 200, { ok: true, id: Number(info.lastInsertRowid) });
+});
+r.patch("/api/admin/stories/:id", async (req, res, p) => {
+  need(req, "admin");
+  const s = q("SELECT * FROM stories WHERE id = ?").get(Number(p.id));
+  if (!s) throw new HttpError(404, "no such story");
+  const f = storyFields(await readJson(req), s);
+  q("UPDATE stories SET kind = ?, eyebrow = ?, title = ?, subtitle = ?, body = ?, packages = ?, color = ?, day = ?, position = ?, published = ? WHERE id = ?")
+    .run(f.kind, f.eyebrow, f.title, f.subtitle, f.body, f.packages, f.color, f.day, f.position, f.published, s.id);
+  send(res, 200, { ok: true });
+});
+r.delete("/api/admin/stories/:id", async (req, res, p) => {
+  need(req, "admin");
+  q("DELETE FROM stories WHERE id = ?").run(Number(p.id));
+  fs.rmSync(path.join(FILES.stories, String(Number(p.id))), { force: true });
+  send(res, 200, { ok: true });
+});
+r.put("/api/admin/stories/:id/image", async (req, res, p) => {
+  need(req, "admin");
+  const id = Number(p.id);
+  if (!q("SELECT 1 FROM stories WHERE id = ?").get(id)) throw new HttpError(404, "no such story");
+  fs.writeFileSync(path.join(FILES.stories, String(id)), await readBody(req, 8 * 1024 * 1024));
+  q("UPDATE stories SET has_image = 1, created = ? WHERE id = ?").run(now(), id);
+  send(res, 200, { ok: true });
+});
+
 // ---- developer panel -----------------------------------------------------------------------
 function ownApp(s, pkg) {
   const a = q("SELECT * FROM apps WHERE package = ?").get(pkg);
@@ -303,11 +395,8 @@ r.delete("/api/dev/apps/:pkg", async (req, res, p) => {
   send(res, 200, { ok: true });
 });
 
-// Upload a new version: the raw .apkg as the request body.
-r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
-  const s = need(req, "developer");
-  const a = ownApp(s, p.pkg);
-  const body = await readBody(req, MAX_APKG);
+// Stores a new version of an app from its .apkg; returns the manifest.
+function publishVersion(a, body, notes) {
   let pkg;
   try {
     pkg = readApkg(body);
@@ -322,7 +411,6 @@ r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
   if (prev && code <= prev.version_code) throw new HttpError(409, `versionCode must be greater than ${prev.version_code}`);
   fs.mkdirSync(path.join(FILES.apps, a.package), { recursive: true });
   fs.writeFileSync(path.join(FILES.apps, a.package, `${code}.apkg`), body);
-  const notes = clean(new URL(req.url, "http://x").searchParams.get("notes") || "", 4000);
   q("INSERT INTO versions (package, version_code, version, size, sha256, notes, manifest, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .run(a.package, code, clean(m.version, 30) || String(code), body.length, pkg.sha256, notes, JSON.stringify(m), now());
   // First upload: take the icon from the package.
@@ -334,7 +422,16 @@ r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
     }
   }
   q("UPDATE apps SET updated = ? WHERE package = ?").run(now(), a.package);
-  send(res, 200, { ok: true, version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [] });
+  return { version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [] };
+}
+
+// Upload a new version: the raw .apkg as the request body.
+r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
+  const s = need(req, "developer");
+  const a = ownApp(s, p.pkg);
+  const body = await readBody(req, MAX_APKG);
+  const notes = clean(new URL(req.url, "http://x").searchParams.get("notes") || "", 4000);
+  send(res, 200, { ok: true, ...publishVersion(a, body, notes) });
 });
 
 r.delete("/api/dev/apps/:pkg/versions/:code", async (req, res, p) => {
@@ -507,5 +604,48 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) send(res, status, { error: status === 500 ? "internal error" : e.message });
   }
 });
+// ---- default apps ----------------------------------------------------------------------------
+// Every seed/<package>.apkg (with an optional seed/<package>.json page:
+// name, summary, description, category, website, featured, story) is
+// published by the first admin, and updated when a newer versionCode
+// shows up. WhatsAstra ships this way.
+function seedApps() {
+  const dir = path.join(ROOT, "seed");
+  if (!fs.existsSync(dir)) return;
+  const admin = q("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+  if (!admin) {
+    console.log("seed: no admin yet (set ADMIN_EMAIL and ADMIN_PASSWORD), default apps not published");
+    return;
+  }
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".apkg"))) {
+    try {
+      const body = fs.readFileSync(path.join(dir, file));
+      const m = readApkg(body).manifest;
+      const metaFile = path.join(dir, file.replace(/\.apkg$/, ".json"));
+      const meta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, "utf8")) : {};
+      let a = q("SELECT * FROM apps WHERE package = ?").get(m.package);
+      if (!a) {
+        q(`INSERT INTO apps (package, owner_id, name, summary, description, category, website, published, featured, created, updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
+          .run(m.package, admin.id, clean(meta.name || m.name, 60), clean(meta.summary, 140), clean(meta.description || m.description, 8000),
+               clean(meta.category, 40) || "Apps", clean(meta.website, 200), meta.featured ? 1 : 0, now(), now());
+        a = q("SELECT * FROM apps WHERE package = ?").get(m.package);
+        if (meta.story)
+          q("INSERT INTO stories (kind, eyebrow, title, subtitle, body, packages, color, created) VALUES ('feature', ?, ?, ?, ?, ?, ?, ?)")
+            .run(clean(meta.story.eyebrow, 60), clean(meta.story.title, 120), clean(meta.story.subtitle, 200), clean(meta.story.body, 8000),
+                 JSON.stringify([m.package]), meta.story.color || "#25D366", now());
+      }
+      const prev = latest(m.package);
+      if (!prev || Number(m.versionCode) > prev.version_code) {
+        publishVersion(a, body, clean(meta.notes || "", 4000));
+        console.log(`seed: published ${m.package} ${m.version}`);
+      }
+    } catch (e) {
+      console.error(`seed: ${file}: ${e.message}`);
+    }
+  }
+}
+seedApps();
+
 server.requestTimeout = 0; // long polls and large uploads
 server.listen(PORT, () => console.log(`astra cloud on :${PORT} (${PUBLIC_URL})`));

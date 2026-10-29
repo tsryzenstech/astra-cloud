@@ -67,6 +67,7 @@ Rectangle {
   "icon": "icon.svg",
   "background": "#000000",              // splash colour while the app starts
   "appearance": "auto",                 // "dark" for apps that are always dark (camera, video)
+  "webengine": true,                    // web content (QtWebEngine): browsers, web apps
   "permissions": ["astra.permission.INTERNET", "astra.permission.CAMERA"],
   "opens": ["text/plain"],              // offered in "Open with" for these types
   "share": ["image/*"],                 // offered in the share sheet for these types
@@ -80,7 +81,7 @@ system theme. Main components:</p>
   <li><code>Page</code>, <code>PageStack</code> — large titles, back navigation and edge swipe</li>
   <li><code>ListGroup</code>, <code>ListItem</code> (switch, chevron, value, selection, icon tiles)</li>
   <li><code>Button</code>, <code>IconButton</code>, <code>Switch</code>, <code>Slider</code>, <code>SegmentedControl</code>, <code>TextField</code></li>
-  <li><code>Card</code>, <code>EmptyState</code>, <code>ProgressBar</code>, <code>Spinner</code>, <code>PinEntry</code>, <code>ShareSheet</code></li>
+  <li><code>Card</code>, <code>EmptyState</code>, <code>ProgressBar</code>, <code>Spinner</code>, <code>PinEntry</code>, <code>Sheet</code> (bottom sheet), <code>ShareSheet</code></li>
   <li><code>Icon</code> (system symbols), <code>AppIcon</code>, <code>Theme</code> (colours, type scale, radii, accent)</li>
 </ul>
 
@@ -93,6 +94,9 @@ Application   args, intent(args) signal, dataDir, mediaDir, media(filters)
 Files         list(dir), copy/move/rename/remove, readText/writeText (shared storage)
 Permissions   check(permission, cb), request(permission, cb)
 Dialogs       show({ title, message, buttons }, cb)   -> system bottom sheet
+Location      state.fix { lat, lon, accuracy }, call("get", { maxAge, watch }, cb)   (LOCATION)
+Calendar      call("list" | "add" | "update" | "delete", ...), alerts as notifications (CALENDAR)
+MailClient    IMAP / SMTP over TLS for mail apps (INTERNET)
 Weather, Network, Telephony, Contacts, Alarms, MediaController, Language, Fonts</pre>
 
 <h2 id="permissions">Permissions</h2>
@@ -138,6 +142,8 @@ Market verifies on upload.</p>
       The package name and a growing <code>versionCode</code> are checked.</li>
   <li>Add the description, category, icon and screenshots, then publish. Updates are new uploads.</li>
 </ol>
+<p>Phones install apps only from Market. People can install an <code>.apkg</code> file directly only after turning on
+Settings › Developer Options › Sideload Apps; ADU over USB debugging always can.</p>
 <p>From CI, upload with your session token:</p>
 <pre>curl -X PUT --data-binary @com.example.hello.apkg \
      -H "Authorization: Bearer $ASTRA_TOKEN" \
