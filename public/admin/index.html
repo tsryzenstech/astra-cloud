@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — astra cloud</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px" id="main"></main>
+<script type="module">
+import { api, toast, esc, ago, me, header } from "/app.js";
+header("");
+const main = document.getElementById("main");
+
+async function start() {
+  const user = await me();
+  if (!user || user.role !== "admin") {
+    main.innerHTML = `<div class="card"><h2>Admins only</h2><p class="muted">Sign in from the <a href="/dev/">developer panel</a> with the admin account.</p></div>`;
+    return;
+  }
+  const [requests, users, apps] = await Promise.all([
+    api("GET", "/api/admin/dev-requests"), api("GET", "/api/admin/users"), api("GET", "/api/dev/apps")]);
+  main.innerHTML = `
+    <h1>Admin</h1>
+    <section><h2>Developer requests</h2><div class="list">${requests.map((d) => `
+      <div class="item"><div class="grow"><b>${esc(d.name)}</b> <span class="small">${esc(d.email)}${d.company ? " · " + esc(d.company) : ""}</span><br>
+        ${d.website ? `<span class="small">${esc(d.website)}</span><br>` : ""}<span class="muted" style="font-size:14px">${esc(d.message)}</span><br>
+        <span class="small">${ago(d.created)}</span></div>
+        ${d.state === "pending" ? `<button class="btn sm" data-approve="${d.id}">Approve</button><button class="btn sm secondary" data-reject="${d.id}">Reject</button>`
+                                : `<span class="pill ${d.state === "approved" ? "ok" : ""}">${esc(d.state)}</span>`}
+      </div>`).join("") || `<div class="item muted">No requests</div>`}</div>
+      <div id="granted"></div></section>
+    <section><h2>Apps</h2><div class="list">${apps.map((a) => `
+      <div class="item"><div class="grow"><b>${esc(a.name)}</b> <span class="small">${esc(a.package)} · ${a.published ? "published" : "draft"} · ${a.downloads} downloads</span></div>
+        <label style="margin:0"><input type="checkbox" data-feature="${esc(a.package)}" ${a.featured ? "checked" : ""} style="width:auto"> Featured</label>
+        <a class="btn sm secondary" href="/dev/">Manage</a></div>`).join("") || `<div class="item muted">No apps</div>`}</div></section>
+    <section><h2>Accounts</h2><div class="list">${users.map((u) => `
+      <div class="item"><div class="grow"><b>${esc(u.name)}</b> <span class="small">${esc(u.email)}</span></div>
+        <span class="pill">${esc(u.role)}</span><span class="small">${ago(u.created)}</span></div>`).join("")}</div></section>`;
+  for (const b of main.querySelectorAll("[data-approve]"))
+    b.onclick = async () => {
+      const r = await api("POST", `/api/admin/dev-requests/${b.dataset.approve}/approve`);
+      await start();
+      document.getElementById("granted").innerHTML = `<div class="card" style="margin-top:16px"><h3>Approved</h3>
+        ${r.password ? `<p>Send these sign-in details to <b>${esc(r.email)}</b>; they should change the password from AstraID:</p>
+          <pre>Email:    ${esc(r.email)}\nPassword: ${esc(r.password)}</pre><p class="small">The password is shown only now.</p>`
+                     : `<p>${esc(r.email)} already had an AstraID: it is now a developer account.</p>`}</div>`;
+    };
+  for (const b of main.querySelectorAll("[data-reject]"))
+    b.onclick = async () => { await api("POST", `/api/admin/dev-requests/${b.dataset.reject}/reject`); start(); };
+  for (const c of main.querySelectorAll("[data-feature]"))
+    c.onchange = async () => { await api("POST", `/api/admin/apps/${encodeURIComponent(c.dataset.feature)}/feature`, { featured: c.checked }); toast("Saved"); };
+}
+
+start();
+</script>
+</body>
+</html>

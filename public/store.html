@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market — astraOS</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .shots { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+  .shots img { height: 420px; border-radius: 26px; border: 1px solid var(--line); flex: none; }
+  .head { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .head .icon { width: 120px; height: 120px; }
+</style>
+</head>
+<body>
+<main class="wrap" style="padding-top:30px" id="main"><p class="muted">Loading…</p></main>
+<script type="module">
+import { api, esc, size, ago, header } from "/app.js";
+header("store");
+const pkg = decodeURIComponent(location.pathname.split("/").filter(Boolean)[1] || "");
+const main = document.getElementById("main");
+try {
+  const a = await api("GET", `/api/store/apps/${encodeURIComponent(pkg)}`);
+  document.title = `${a.name} — Market`;
+  main.innerHTML = `
+    <div class="head">
+      <img class="icon" src="${esc(a.icon || "/assets/grid.svg")}" alt="">
+      <div><h1 style="margin:0">${esc(a.name)}</h1>
+        <div class="muted">${esc(a.developer)} · ${esc(a.category)}</div>
+        <div class="small">Version ${esc(a.version)} · ${size(a.size)} · ${a.downloads} downloads</div>
+        <p style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="${esc(a.url)}">Download .apkg</a>
+        ${a.website ? `<a class="btn secondary" href="${esc(a.website)}" rel="noopener">Website</a>` : ""}</p></div>
+    </div>
+    <p class="small">On your astraOS phone open Market to install it, or download the .apkg and open it with Files.</p>
+    ${a.screenshots.length ? `<section><div class="shots">${a.screenshots.map((s) => `<img src="${esc(s)}" alt="">`).join("")}</div></section>` : ""}
+    <section><h2>About</h2><p class="muted" style="white-space:pre-wrap">${esc(a.description || a.summary)}</p></section>
+    <section><h2>What's new</h2><div class="list">${a.versions.map((v) => `<div class="item"><div class="grow"><b>${esc(v.version)}</b> <span class="small">${ago(v.created)} · ${size(v.size)}</span><br>
+      <span class="muted" style="font-size:14px">${esc(v.notes || "Improvements and fixes.")}</span></div></div>`).join("")}</div></section>`;
+} catch (e) {
+  main.innerHTML = `<div class="card"><h2>App not found</h2><p class="muted">It may have been removed from Market. <a href="/#store">See all apps</a>.</p></div>`;
+}
+</script>
+</body>
+</html>

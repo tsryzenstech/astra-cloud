@@ -1,0 +1,10 @@
+# DOMAIN is ":80" (plain HTTP on the IP) or a domain name (automatic HTTPS).
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 320MB
+	}
+	reverse_proxy cloud:8080 {
+		flush_interval -1
+	}
+}

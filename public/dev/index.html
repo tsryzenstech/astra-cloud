@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Developer panel — astra cloud</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px" id="main"></main>
+<script type="module">
+import { api, toast, esc, size, ago, me, header } from "/app.js";
+header("dev");
+const main = document.getElementById("main");
+
+async function start() {
+  const user = await me();
+  if (!user) return signIn();
+  if (user.role === "user")
+    return (main.innerHTML = `<div class="card"><h2>Developer access needed</h2>
+      <p class="muted">You're signed in as ${esc(user.email)}, which is not a developer account yet.
+      <a href="/#become">Ask to become a developer</a>.</p></div>`);
+  render(user);
+}
+
+function signIn() {
+  main.innerHTML = `<div class="card" style="max-width:420px;margin:40px auto">
+    <h2>Developer sign in</h2>
+    <form id="login"><label>Email</label><input name="email" type="email" required>
+    <label>Password</label><input name="password" type="password" required>
+    <p><button class="btn">Sign in</button></p></form>
+    <p class="small">No account? <a href="/#become">Ask to become a developer</a>.</p></div>`;
+  document.getElementById("login").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("POST", "/api/auth/login", Object.fromEntries(new FormData(e.target)));
+      start();
+    } catch (err) { toast(err.message); }
+  };
+}
+
+async function render(user) {
+  const apps = await api("GET", "/api/dev/apps");
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 style="margin:0">Your apps</h1>
+      <span class="pill">${esc(user.email)}${user.role === "admin" ? " · admin" : ""}</span>
+      ${user.role === "admin" ? `<a class="btn sm secondary" href="/admin/">Admin</a>` : ""}
+      <button class="btn sm secondary" id="logout" style="margin-left:auto">Sign out</button>
+    </div>
+    <section>
+      <div class="list">${apps.map((a) => `
+        <div class="item">
+          <img class="icon" src="${a.has_icon ? `/files/icons/${esc(a.package)}?${a.updated}` : "/assets/grid.svg"}" alt="">
+          <div class="grow"><b>${esc(a.name)}</b> <span class="small">${esc(a.package)}</span><br>
+            <span class="small">${a.latest ? `v${esc(a.latest.version)} (${a.latest.version_code}) · ${size(a.latest.size)}` : "no version uploaded"} · ${a.downloads} downloads · updated ${ago(a.updated)}</span></div>
+          <span class="pill ${a.published ? "ok" : "warn"}">${a.published ? "Published" : "Draft"}</span>
+          <button class="btn sm secondary" data-edit="${esc(a.package)}">Manage</button>
+        </div>`).join("") || `<div class="item muted">No apps yet: create your first one below.</div>`}
+      </div>
+    </section>
+    <section class="card" style="max-width:720px">
+      <h2>New app</h2>
+      <form id="create">
+        <div class="row"><div><label>Package name</label><input name="package" placeholder="com.example.myapp" required></div>
+        <div><label>Name</label><input name="name" required maxlength="60"></div></div>
+        <label>Short summary</label><input name="summary" maxlength="140">
+        <div class="row"><div><label>Category</label><select name="category">${["Apps", "Games", "Social", "Productivity", "Music", "Photo & Video", "Tools", "Education", "News", "Health"].map((c) => `<option>${c}</option>`).join("")}</select></div>
+        <div><label>Website</label><input name="website"></div></div>
+        <p><button class="btn">Create</button></p>
+      </form>
+    </section>
+    <div id="editor"></div>`;
+  document.getElementById("logout").onclick = async () => { await api("POST", "/api/auth/logout"); start(); };
+  document.getElementById("create").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("POST", "/api/dev/apps", Object.fromEntries(new FormData(e.target)));
+      toast("App created: now upload a version");
+      render(user);
+    } catch (err) { toast(err.message); }
+  };
+  for (const b of document.querySelectorAll("[data-edit]"))
+    b.onclick = () => edit(user, apps.find((a) => a.package === b.dataset.edit));
+}
+
+function edit(user, a) {
+  const el = document.getElementById("editor");
+  el.innerHTML = `<section class="card">
+    <h2>${esc(a.name)} <span class="small">${esc(a.package)}</span></h2>
+    <h3>Upload a version</h3>
+    <p class="small">The .apkg must have package “${esc(a.package)}” and a versionCode greater than ${a.latest ? a.latest.version_code : 0}.</p>
+    <input type="file" id="apkg" accept=".apkg">
+    <label>Release notes</label><textarea id="notes" rows="2"></textarea>
+    <p><button class="btn" id="upload">Upload</button></p>
+
+    <h3>App page</h3>
+    <form id="meta">
+      <div class="row"><div><label>Name</label><input name="name" value="${esc(a.name)}"></div>
+      <div><label>Category</label><input name="category" value="${esc(a.category)}"></div></div>
+      <label>Summary</label><input name="summary" value="${esc(a.summary)}" maxlength="140">
+      <label>Description</label><textarea name="description" rows="6">${esc(a.description)}</textarea>
+      <label>Website</label><input name="website" value="${esc(a.website)}">
+      <label><input type="checkbox" name="published" ${a.published ? "checked" : ""} style="width:auto"> Published on Market</label>
+      <p><button class="btn">Save</button></p>
+    </form>
+
+    <h3>Icon and screenshots</h3>
+    <div class="row"><div><label>Icon (PNG or SVG)</label><input type="file" id="icon" accept="image/*"></div>
+    <div><label>Add a screenshot (${a.screenshots}/8)</label><input type="file" id="shot" accept="image/png,image/jpeg"></div></div>
+    <p><button class="btn sm secondary" id="clearShots">Remove screenshots</button></p>
+
+    <h3>Versions</h3>
+    <div class="list">${a.versions.map((v) => `<div class="item"><div class="grow">v${esc(v.version)} (${v.version_code}) · ${size(v.size)} · ${ago(v.created)}<br><span class="small">${esc(v.notes)}</span></div>
+      <button class="btn sm danger" data-del="${v.version_code}">Delete</button></div>`).join("") || `<div class="item muted">None yet</div>`}</div>
+    <p style="margin-top:24px"><button class="btn danger" id="remove">Remove the app from Market</button></p>
+  </section>`;
+  el.scrollIntoView({ behavior: "smooth" });
+  const base = `/api/dev/apps/${encodeURIComponent(a.package)}`;
+  const reload = () => render(user);
+  document.getElementById("upload").onclick = async () => {
+    const f = document.getElementById("apkg").files[0];
+    if (!f) return toast("Choose an .apkg first");
+    try {
+      const r = await api("PUT", `${base}/versions?notes=${encodeURIComponent(document.getElementById("notes").value)}`, undefined, f);
+      toast(`Version ${r.version} uploaded`);
+      reload();
+    } catch (err) { toast(err.message); }
+  };
+  document.getElementById("meta").onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    d.published = !!d.published;
+    try { await api("PATCH", base, d); toast("Saved"); reload(); } catch (err) { toast(err.message); }
+  };
+  document.getElementById("icon").onchange = async (e) => { try { await api("PUT", `${base}/icon`, undefined, e.target.files[0]); toast("Icon updated"); reload(); } catch (err) { toast(err.message); } };
+  document.getElementById("shot").onchange = async (e) => { try { await api("PUT", `${base}/screenshots`, undefined, e.target.files[0]); toast("Screenshot added"); reload(); } catch (err) { toast(err.message); } };
+  document.getElementById("clearShots").onclick = async () => { await api("DELETE", `${base}/screenshots`); reload(); };
+  for (const b of el.querySelectorAll("[data-del]"))
+    b.onclick = async () => { if (confirm("Delete this version?")) { await api("DELETE", `${base}/versions/${b.dataset.del}`); reload(); } };
+  document.getElementById("remove").onclick = async () => {
+    if (confirm(`Remove ${a.name} and all of its versions from Market?`)) { await api("DELETE", base); reload(); }
+  };
+}
+
+start();
+</script>
+</body>
+</html>

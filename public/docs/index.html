@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>astraOS SDK — documentation</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px">
+<div class="docs">
+<aside>
+  <a href="#start">Getting started</a>
+  <a href="#manifest">app.json</a>
+  <a href="#ui">UI: Astra.Controls</a>
+  <a href="#services">System services: Astra.Core</a>
+  <a href="#permissions">Permissions</a>
+  <a href="#files">Files and sharing</a>
+  <a href="#appearance">Light and dark</a>
+  <a href="#i18n">Translations</a>
+  <a href="#widgets">Lock screen widgets</a>
+  <a href="#package">Packaging</a>
+  <a href="#publish">Publishing on Market</a>
+  <a href="#adu">Testing with ADU</a>
+</aside>
+<article>
+<h1>Build apps for astraOS</h1>
+<p class="muted">astraOS apps are written in QML (Qt 6) and shipped as <code>.apkg</code> packages. Every app runs in its own
+sandbox (its own Linux user), talks to the system through the <code>Astra.Core</code> QML module and draws with the
+<code>Astra.Controls</code> design system, so it looks at home and follows the system appearance and language.</p>
+
+<h2 id="start">Getting started</h2>
+<pre>hello/
+├── app.json          the manifest
+├── icon.svg          square artwork; the system rounds it
+├── qml/Main.qml      the first screen
+└── i18n/it.json      translations (optional)</pre>
+<pre>// qml/Main.qml
+import QtQuick
+import Astra.Core
+import Astra.Controls
+
+Rectangle {
+    color: Theme.background
+    Page {
+        anchors.fill: parent
+        title: qsTr("Hello")
+        ListGroup {
+            ListItem { text: qsTr("Battery"); value: System.batteryLevel + "%" }
+            ListItem {
+                text: qsTr("Send a notification")
+                chevron: true
+                onClicked: Notifications.post(qsTr("Hi!"), qsTr("Sent from my app"))
+            }
+        }
+    }
+}</pre>
+
+<h2 id="manifest">app.json</h2>
+<pre>{
+  "package": "com.example.hello",       // reverse domain, unique on Market
+  "name": "Hello", "names": { "it": "Ciao" },
+  "version": "1.0.0", "versionCode": 1,  // versionCode must grow with every release
+  "description": "A friendly app.", "descriptions": { "it": "Un'app amichevole." },
+  "main": "qml/Main.qml",
+  "icon": "icon.svg",
+  "background": "#000000",              // splash colour while the app starts
+  "appearance": "auto",                 // "dark" for apps that are always dark (camera, video)
+  "permissions": ["astra.permission.INTERNET", "astra.permission.CAMERA"],
+  "opens": ["text/plain"],              // offered in "Open with" for these types
+  "share": ["image/*"],                 // offered in the share sheet for these types
+  "widgets": [{ "id": "now", "name": "Now", "qml": "widgets/Now.qml", "size": "small" }]
+}</pre>
+
+<h2 id="ui">UI: Astra.Controls</h2>
+<p>Use the design system instead of drawing your own controls: rounded surfaces, springs and colours that follow the
+system theme. Main components:</p>
+<ul class="muted">
+  <li><code>Page</code>, <code>PageStack</code> — large titles, back navigation and edge swipe</li>
+  <li><code>ListGroup</code>, <code>ListItem</code> (switch, chevron, value, selection, icon tiles)</li>
+  <li><code>Button</code>, <code>IconButton</code>, <code>Switch</code>, <code>Slider</code>, <code>SegmentedControl</code>, <code>TextField</code></li>
+  <li><code>Card</code>, <code>EmptyState</code>, <code>ProgressBar</code>, <code>Spinner</code>, <code>PinEntry</code>, <code>ShareSheet</code></li>
+  <li><code>Icon</code> (system symbols), <code>AppIcon</code>, <code>Theme</code> (colours, type scale, radii, accent)</li>
+</ul>
+
+<h2 id="services">System services: Astra.Core</h2>
+<pre>System        battery, brightness, torch, device info, power
+Settings      values["key"], setValue() (apps own "app.&lt;package&gt;." keys)
+Notifications post(title, body), dismiss(id)
+Packages      list(), launch(package, args), targets(mime, "share" | "open")
+Application   args, intent(args) signal, dataDir, mediaDir, media(filters)
+Files         list(dir), copy/move/rename/remove, readText/writeText (shared storage)
+Permissions   check(permission, cb), request(permission, cb)
+Dialogs       show({ title, message, buttons }, cb)   -> system bottom sheet
+Weather, Network, Telephony, Contacts, Alarms, MediaController, Language, Fonts</pre>
+
+<h2 id="permissions">Permissions</h2>
+<p>Declare every permission in <code>app.json</code>. Normal ones (internet, vibration, alarms) are granted at install.
+Runtime ones (camera, microphone, location, contacts, photos, phone, SMS, notifications, nearby devices) must be asked
+for with <code>Permissions.request()</code>: the system shows a popup the user must answer. The answer is final; people
+change it later in Settings › Apps. When a permission grants access to a device (camera, media), the system restarts
+the app after it is allowed.</p>
+<pre>Permissions.request("astra.permission.CAMERA", function(granted) {
+    if (granted) camera.start()
+})</pre>
+
+<h2 id="files">Files and sharing</h2>
+<p>Apps with the MEDIA permission read and write the shared storage (<code>Files.home</code>). To share, use
+<code>ShareSheet</code>; to receive, declare <code>"share"</code> or <code>"opens"</code> and read
+<code>Application.args</code> (<code>{ action: "share" | "open", files: [paths], text }</code>), also delivered later
+through <code>Application.intent</code>.</p>
+
+<h2 id="appearance">Light and dark</h2>
+<p>Use <code>Theme.background</code>, <code>Theme.surface</code>, <code>Theme.text</code> and friends: they change with
+the system appearance. <code>Theme.light</code> tells which one is active. Apps that must stay dark set
+<code>"appearance": "dark"</code>.</p>
+
+<h2 id="i18n">Translations</h2>
+<p>Write every string in English with <code>qsTr()</code> and add <code>i18n/&lt;language&gt;.json</code>, keyed by the
+English text. Plurals use <code>{ "one": …, "other": … }</code>. Missing strings fall back to English.</p>
+<pre>{ "Hello": "Ciao", "%n photos": { "one": "%n foto", "other": "%n foto" } }</pre>
+
+<h2 id="widgets">Lock screen widgets</h2>
+<p>Each widget is a small QML file declared in <code>"widgets"</code> (size <code>small</code> or <code>wide</code>);
+people add it in Settings › Lock Screen.</p>
+
+<h2 id="package">Packaging</h2>
+<pre>python3 tools/apkgtool/apkgtool.py pack hello/ -o com.example.hello.apkg
+python3 tools/apkgtool/apkgtool.py verify com.example.hello.apkg</pre>
+<p><code>apkgtool</code> is in the astraOS source tree. Packages are reproducible and end with a SHA-256 checksum that
+Market verifies on upload.</p>
+
+<h2 id="publish">Publishing on Market</h2>
+<ol class="muted">
+  <li>Ask to become a developer on the <a href="/#become">home page</a>; you receive your sign-in once approved.</li>
+  <li>In the <a href="/dev/">developer panel</a> create the app with its package name, then upload an <code>.apkg</code>.
+      The package name and a growing <code>versionCode</code> are checked.</li>
+  <li>Add the description, category, icon and screenshots, then publish. Updates are new uploads.</li>
+</ol>
+<p>From CI, upload with your session token:</p>
+<pre>curl -X PUT --data-binary @com.example.hello.apkg \
+     -H "Authorization: Bearer $ASTRA_TOKEN" \
+     "https://&lt;server&gt;/api/dev/apps/com.example.hello/versions?notes=Bug%20fixes"</pre>
+<p>Get a token with <code>POST /api/auth/login</code> and a <code>device</code> object (it appears in AstraID as a device
+you can remove at any time).</p>
+
+<h2 id="adu">Testing with ADU</h2>
+<p>Turn on Developer Options (Settings › About › More Settings, tap Architecture seven times) and USB debugging, then:</p>
+<pre>adu install com.example.hello.apkg
+adu start com.example.hello
+adu logcat</pre>
+</article>
+</div>
+</main>
+<script type="module">import { header } from "/app.js"; header("docs");</script>
+</body>
+</html>

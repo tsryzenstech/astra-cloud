@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>astra cloud — Market and AstraID for astraOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <section class="hero"><div class="wrap">
+    <h1>Apps for astraOS</h1>
+    <p>Market is where astraOS phones find their apps. Build one with the astraOS SDK and publish it here for everyone.</p>
+    <a class="btn" href="#become">Become a developer</a>
+    <a class="btn secondary" href="/docs/">Read the SDK docs</a>
+  </div></section>
+
+  <section id="store"><div class="wrap">
+    <h2>On Market</h2>
+    <div class="grid" id="apps"><p class="muted">Loading the catalog…</p></div>
+  </div></section>
+
+  <section><div class="wrap">
+    <h2>AstraID</h2>
+    <div class="grid">
+      <div class="card"><h3>Find My Device</h3><p class="muted">See where your phone is, make it ring, lock it or send it a message.</p></div>
+      <div class="card"><h3>Contacts backup</h3><p class="muted">Your contacts, encrypted on the server. Nothing else: no photos, videos, audio or files.</p></div>
+      <div class="card"><h3>One account</h3><p class="muted">The same AstraID for Market purchases and every astraOS phone you own.</p></div>
+    </div>
+    <p style="margin-top:18px"><a class="btn secondary" href="/id/">Open AstraID</a></p>
+  </div></section>
+
+  <section id="become"><div class="wrap">
+    <h2>Become a developer</h2>
+    <div class="card" style="max-width:720px">
+      <p class="muted">Tell us about you and what you want to build. Once your request is approved you get access to the developer panel, where you upload your apps, update them and edit their pages.</p>
+      <form id="request">
+        <div class="row">
+          <div><label>Name</label><input name="name" required maxlength="80"></div>
+          <div><label>Email</label><input name="email" type="email" required></div>
+        </div>
+        <div class="row">
+          <div><label>Company (optional)</label><input name="company" maxlength="80"></div>
+          <div><label>Website or GitHub (optional)</label><input name="website" maxlength="200"></div>
+        </div>
+        <label>What will you publish?</label>
+        <textarea name="message" rows="4" maxlength="2000"></textarea>
+        <p><button class="btn" type="submit">Send request</button></p>
+      </form>
+    </div>
+  </div></section>
+</main>
+<footer><div class="wrap">astra cloud · <a href="/docs/">SDK documentation</a> · <a href="/dev/">Developer panel</a> · <a href="/id/">AstraID</a></div></footer>
+
+<script type="module">
+import { api, toast, esc, header } from "/app.js";
+header("store");
+
+const list = await api("GET", "/api/store/index.json").catch(() => []);
+document.getElementById("apps").innerHTML = list.length ? list.map((a) => `
+  <a class="card" href="/store/${esc(a.package)}" style="display:flex;gap:14px;align-items:center;color:inherit;text-decoration:none">
+    <img class="icon" src="${esc(a.icon || "/assets/grid.svg")}" alt="">
+    <div><b>${esc(a.name)}</b><div class="small">${esc(a.category)} · ${esc(a.version)}</div>
+    <div class="muted" style="font-size:14px">${esc(a.summary || "")}</div></div>
+  </a>`).join("") : `<p class="muted">No apps published yet.</p>`;
+
+document.getElementById("request").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  try {
+    await api("POST", "/api/dev-requests", data);
+    e.target.reset();
+    toast("Thanks! We'll get back to you by email.");
+  } catch (err) {
+    toast(err.message);
+  }
+});
+</script>
+</body>
+</html>

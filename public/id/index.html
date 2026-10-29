@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AstraID</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px" id="main"></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+import { api, toast, esc, ago, me, header } from "/app.js";
+header("id");
+const main = document.getElementById("main");
+let map, markers = [], selected = null, refresh;
+
+async function start() {
+  const user = await me();
+  if (!user) return signIn();
+  render(user);
+}
+
+function signIn(register = false) {
+  main.innerHTML = `<div class="card" style="max-width:420px;margin:40px auto">
+    <h2>${register ? "Create your AstraID" : "Sign in to AstraID"}</h2>
+    <p class="muted">Find your phone, make it ring or lock it, and keep your contacts backed up.</p>
+    <form id="auth">
+      ${register ? `<label>Name</label><input name="name" maxlength="80">` : ""}
+      <label>Email</label><input name="email" type="email" required autocomplete="email">
+      <label>Password</label><input name="password" type="password" required minlength="${register ? 8 : 1}" autocomplete="${register ? "new-password" : "current-password"}">
+      <p><button class="btn">${register ? "Create AstraID" : "Sign in"}</button></p>
+    </form>
+    <p class="small">${register ? `Already have one? <a href="#" id="swap">Sign in</a>` : `New here? <a href="#" id="swap">Create an AstraID</a>`}</p>
+  </div>`;
+  document.getElementById("swap").onclick = (e) => { e.preventDefault(); signIn(!register); };
+  document.getElementById("auth").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("POST", register ? "/api/auth/register" : "/api/auth/login", Object.fromEntries(new FormData(e.target)));
+      start();
+    } catch (err) { toast(err.message); }
+  };
+}
+
+async function render(user) {
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 style="margin:0">Hi, ${esc(user.name)}</h1>
+      <span class="pill">${esc(user.email)}</span>
+      <button class="btn sm secondary" id="logout" style="margin-left:auto">Sign out</button>
+    </div>
+    <section>
+      <h2>Find My Device</h2>
+      <div id="map"></div>
+      <div class="list" id="devices" style="margin-top:16px"></div>
+      <div id="actions"></div>
+    </section>
+    <section>
+      <h2>Contacts backup</h2>
+      <div class="card" id="contacts"><p class="muted">Loading…</p></div>
+    </section>
+    <section>
+      <h2>Account</h2>
+      <div class="card" style="max-width:720px">
+        <form id="password"><div class="row">
+          <div><label>Current password</label><input name="current" type="password" required autocomplete="current-password"></div>
+          <div><label>New password</label><input name="password" type="password" required minlength="8" autocomplete="new-password"></div>
+        </div><p><button class="btn secondary">Change password</button></p></form>
+        <p class="small">Deleting your AstraID removes your devices, your contacts backup and your Market apps from the server.</p>
+        <button class="btn danger" id="delete">Delete AstraID</button>
+      </div>
+    </section>`;
+  document.getElementById("logout").onclick = async () => { await api("POST", "/api/auth/logout"); clearInterval(refresh); start(); };
+  document.getElementById("password").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api("POST", "/api/auth/password", Object.fromEntries(new FormData(e.target))); e.target.reset(); toast("Password changed"); }
+    catch (err) { toast(err.message); }
+  };
+  document.getElementById("delete").onclick = async () => {
+    if (prompt(`Type ${user.email} to delete your AstraID for good`) !== user.email) return;
+    await api("DELETE", "/api/auth/account");
+    start();
+  };
+  map = L.map("map", { zoomControl: true }).setView([45, 10], 4);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  await loadDevices();
+  loadContacts();
+  clearInterval(refresh);
+  refresh = setInterval(loadDevices, 15000);
+}
+
+async function loadDevices() {
+  const list = await api("GET", "/api/id/devices").catch(() => []);
+  for (const m of markers) m.remove();
+  markers = [];
+  const box = document.getElementById("devices");
+  if (!box) return;
+  box.innerHTML = list.map((d) => {
+    const r = d.report || {};
+    const online = d.lastSeen && Date.now() - d.lastSeen < 120000;
+    return `<div class="item" data-id="${d.id}" style="cursor:pointer;${selected === d.id ? "background:var(--raised)" : ""}">
+      <img class="icon" src="/assets/devices.svg" alt="" style="padding:12px;filter:var(--logo-filter,none)">
+      <div class="grow"><b>${esc(d.name)}</b> <span class="small">${esc(d.model)} · ${esc(d.os)}</span><br>
+        <span class="small">${online ? "Online" : "Last seen " + ago(d.lastSeen)}${r.battery != null ? ` · battery ${r.battery}%${r.charging ? " (charging)" : ""}` : ""}${r.network ? " · " + esc(r.network) : ""}${r.location ? ` · located ${ago(r.location.time)}` : " · no location yet"}</span></div>
+      <span class="pill ${d.findMy ? "ok" : "warn"}">${d.findMy ? "Find My on" : "Find My off"}</span>
+    </div>`;
+  }).join("") || `<div class="item muted">No phones yet. On your astraOS phone open Settings › AstraID and sign in.</div>`;
+  const bounds = [];
+  for (const d of list) {
+    const loc = d.report?.location;
+    if (!loc) continue;
+    const m = L.marker([loc.lat, loc.lon]).addTo(map).bindPopup(`<b>${esc(d.name)}</b><br>${ago(loc.time)}${loc.accuracy ? ` · ±${Math.round(loc.accuracy)} m` : ""}`);
+    markers.push(m);
+    if (loc.accuracy) markers.push(L.circle([loc.lat, loc.lon], { radius: loc.accuracy, color: "#ff7a00", weight: 1 }).addTo(map));
+    bounds.push([loc.lat, loc.lon]);
+  }
+  if (selected === null && bounds.length) map.fitBounds(bounds, { maxZoom: 15, padding: [40, 40] });
+  for (const row of box.querySelectorAll("[data-id]"))
+    row.onclick = () => select(list.find((d) => d.id === Number(row.dataset.id)));
+  if (selected !== null) {
+    const d = list.find((x) => x.id === selected);
+    if (d) actions(d, false);
+  }
+}
+
+function select(d) {
+  selected = d.id;
+  const loc = d.report?.location;
+  if (loc) map.setView([loc.lat, loc.lon], 16);
+  actions(d, true);
+  loadDevices();
+}
+
+async function actions(d, scroll) {
+  const el = document.getElementById("actions");
+  const history = await api("GET", `/api/id/devices/${d.id}/commands`).catch(() => []);
+  el.innerHTML = `<div class="card" style="margin-top:16px">
+    <h3>${esc(d.name)}</h3>
+    ${d.findMy ? `<p style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" data-cmd="ring">Play sound</button>
+      <button class="btn secondary" data-cmd="locate">Locate now</button>
+      <button class="btn secondary" data-cmd="lock">Lock</button>
+    </p>
+    <form id="notify"><div class="row"><div><label>Notification title</label><input name="title" maxlength="80" required></div>
+      <div><label>Message</label><input name="body" maxlength="500"></div></div>
+      <p><button class="btn secondary">Send notification</button></p></form>`
+    : `<p class="muted">Find My Device is turned off on this phone (Settings › AstraID).</p>`}
+    <h3 style="margin-top:20px">Recent requests</h3>
+    <div class="small">${history.map((c) => `${esc(c.type)} · ${esc(c.state)}${c.result ? " · " + esc(c.result) : ""} · ${ago(c.created)}`).join("<br>") || "None"}</div>
+    <p style="margin-top:20px"><button class="btn sm danger" id="forget">Remove this phone from AstraID</button></p>
+  </div>`;
+  if (scroll) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const send = async (type, extra = {}) => {
+    try { await api("POST", `/api/id/devices/${d.id}/commands`, { type, ...extra }); toast("Sent to " + d.name); actions(d, false); }
+    catch (err) { toast(err.message); }
+  };
+  for (const b of el.querySelectorAll("[data-cmd]")) b.onclick = () => send(b.dataset.cmd);
+  const form = document.getElementById("notify");
+  if (form) form.onsubmit = (e) => { e.preventDefault(); send("notify", Object.fromEntries(new FormData(form))); form.reset(); };
+  document.getElementById("forget").onclick = async () => {
+    if (!confirm(`Remove ${d.name}? It is signed out of AstraID.`)) return;
+    await api("DELETE", `/api/id/devices/${d.id}`);
+    selected = null;
+    el.innerHTML = "";
+    loadDevices();
+  };
+}
+
+async function loadContacts() {
+  const box = document.getElementById("contacts");
+  const data = await api("GET", "/api/id/contacts").catch(() => ({ contacts: [] }));
+  const list = data.contacts;
+  box.innerHTML = `<p class="muted">Only your contacts are backed up: no photos, videos, audio or files. They're encrypted on the server with a key
+    that belongs to your account.</p>
+    ${data.updated ? `<p><b>${list.length}</b> contacts · backed up ${ago(data.updated)}</p>
+      <input id="filter" placeholder="Search contacts">
+      <div class="list" style="margin-top:12px;max-height:360px;overflow:auto" id="clist"></div>
+      <p style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn sm secondary" id="vcf">Download as vCard</button>
+      <button class="btn sm danger" id="wipe">Delete backup</button></p>`
+    : `<p class="small">No backup yet. Turn on contacts backup in Settings › AstraID on your phone.</p>`}`;
+  if (!data.updated) return;
+  const draw = (f = "") => {
+    document.getElementById("clist").innerHTML = list
+      .filter((c) => !f || JSON.stringify(c).toLowerCase().includes(f.toLowerCase()))
+      .map((c) => `<div class="item"><div class="grow"><b>${esc(c.name)}</b>${c.favorite ? " ★" : ""}<br><span class="small">${esc([c.phone, c.email, c.company].filter(Boolean).join(" · "))}</span></div></div>`)
+      .join("") || `<div class="item muted">No match</div>`;
+  };
+  draw();
+  document.getElementById("filter").oninput = (e) => draw(e.target.value);
+  document.getElementById("vcf").onclick = () => {
+    const v = list.map((c) => ["BEGIN:VCARD", "VERSION:3.0", `FN:${c.name || ""}`, c.phone && `TEL:${c.phone}`, c.email && `EMAIL:${c.email}`,
+      c.company && `ORG:${c.company}`, c.note && `NOTE:${c.note}`, "END:VCARD"].filter(Boolean).join("\r\n")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([v], { type: "text/vcard" }));
+    a.download = "contacts.vcf";
+    a.click();
+  };
+  document.getElementById("wipe").onclick = async () => {
+    if (!confirm("Delete the contacts backup from the server? The contacts on your phones stay.")) return;
+    await api("DELETE", "/api/id/contacts");
+    loadContacts();
+  };
+}
+
+start();
+</script>
+</body>
+</html>
