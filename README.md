@@ -23,7 +23,10 @@ The astraOS app store (Market) and AstraID, in one Node.js server with no depend
    sudo docker compose up -d --build
    ```
 4. Open ports 80 and 443. On Google Cloud that's VPC network › Firewall: allow tcp:80,443, or tick "Allow HTTP/HTTPS traffic" on the VM.
-5. Open `http://34.155.86.153/dev/` and sign in with the admin account.
+5. Open `http://34.155.86.153/dev/` (with `http://`: on the bare IP there is no HTTPS, so `https://` is refused) and sign in with the admin account.
+
+**If the page says 502 Bad Gateway**, Caddy is running but the server isn't: `sudo docker compose logs cloud` says why
+(usually an empty or wrong `MASTER_KEY` in `.env`).
 
 **HTTPS (recommended).** Passwords and tokens travel over the network, so point a domain at the IP. Then set `DOMAIN=cloud.example.com` and `PUBLIC_URL=https://cloud.example.com` in `.env`, and run `docker compose up -d` again. Caddy gets the certificate automatically.
 
