@@ -5,7 +5,7 @@
     "category": "Social",
     "website": "https://github.com/tsryzenstech/whatsastra",
     "featured": true,
-    "notes": "First release: chats, notifications with the unread count, attachments from Files, downloads, zoom, spell check.",
+    "notes": "Opens reliably, and explains what's missing when the system has no web engine.",
     "story": {
         "eyebrow": "NEW ON ASTRAOS",
         "title": "Your chats, now on astraOS",
