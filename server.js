@@ -19,6 +19,7 @@ import { openDatabase } from "./lib/db.js";
 import { Router, HttpError, readBody, readJson, cookies, send, serveStatic, sendFile } from "./lib/http.js";
 import * as sec from "./lib/security.js";
 import { readApkg, ApkgError } from "./lib/apkg.js";
+import { registerWhatsApp } from "./lib/whatsapp.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -583,6 +584,9 @@ r.delete("/api/id/contacts", async (req, res) => {
   q("DELETE FROM contacts_backup WHERE user_id = ?").run(s.user.id);
   send(res, 200, { ok: true });
 });
+
+// ---- WhatsAstra: WhatsApp through OpenWA (lib/whatsapp.js) ----------------------------------
+registerWhatsApp(r, { db, needDevice, env });
 
 // ---- server -----------------------------------------------------------------------------------
 const server = http.createServer(async (req, res) => {

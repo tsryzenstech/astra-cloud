@@ -3,8 +3,30 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      OPENWA_URL: http://openwa:2785
+      OPENWA_KEY_FILE: /openwa/.api-key
     volumes:
       - ./data:/data
+      - ./openwa:/openwa:ro
+  # WhatsApp for WhatsAstra (https://github.com/rmyndharis/OpenWA). Not
+  # published on any port: only the cloud server talks to it.
+  openwa:
+    image: ghcr.io/rmyndharis/openwa:latest
+    restart: unless-stopped
+    shm_size: 1gb            # Chromium (whatsapp-web.js engine)
+    stop_grace_period: 75s
+    environment:
+      NODE_ENV: production
+      PORT: "2785"
+      HOME: /tmp
+      ENGINE_TYPE: whatsapp-web.js
+      AUTO_START_SESSIONS: "true"
+      SERVE_DASHBOARD: "false"
+      DATABASE_TYPE: sqlite
+      STORAGE_TYPE: local
+    volumes:
+      - ./openwa:/app/data
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

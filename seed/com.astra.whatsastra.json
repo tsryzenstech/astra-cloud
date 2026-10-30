@@ -1,11 +1,11 @@
 {
     "name": "WhatsAstra",
-    "summary": "WhatsApp on astraOS",
-    "description": "WhatsAstra brings WhatsApp to astraOS through WhatsApp Web.\n\nOpen it, then on your main phone go to WhatsApp > Linked devices > Link a device and scan the QR code. Your chats, voice notes and photos stay in sync, and new messages arrive as notifications.\n\nWhatsAstra is not made by or affiliated with WhatsApp or Meta.",
+    "summary": "WhatsApp, native on astraOS",
+    "description": "WhatsAstra brings WhatsApp to astraOS as a native app, built from the system's own components: it follows your light or dark mode, your text size and the system's gestures.\n\nOpen it, sign in with your AstraID, then on your main phone go to WhatsApp > Settings > Linked devices > Link a device and scan the code. Your chats and new messages arrive as notifications.\n\nWhatsApp's protocol runs on your astraOS server (OpenWA). WhatsApp does not support other apps officially: a linked account can be restricted by WhatsApp.\n\nWhatsAstra is not made by or affiliated with WhatsApp or Meta.",
     "category": "Social",
     "website": "https://github.com/tsryzenstech/whatsastra",
     "featured": true,
-    "notes": "Opens reliably, and explains what's missing when the system has no web engine.",
+    "notes": "A native astraOS app: no more web page. Chats, conversations and notifications through your astraOS server.",
     "story": {
         "eyebrow": "NEW ON ASTRAOS",
         "title": "Your chats, now on astraOS",

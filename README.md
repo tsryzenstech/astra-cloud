@@ -34,6 +34,26 @@ The astraOS app store (Market) and AstraID, in one Node.js server with no depend
 
 **Backups:** copy the `data/` folder (database and apkg files) and keep `MASTER_KEY` somewhere safe.
 
+## WhatsAstra: WhatsApp through OpenWA
+
+WhatsAstra is a native astraOS app; the WhatsApp protocol runs here, in
+[OpenWA](https://github.com/rmyndharis/OpenWA) (MIT), the `openwa` service of
+`docker-compose.yml`. It is not published on any port: the phone talks to
+this server (`/api/app/com.astra.whatsastra/*`, see `lib/whatsapp.js`) with
+its AstraID, and every AstraID account gets its own WhatsApp session.
+
+1. `sudo docker compose up -d` starts OpenWA too. On its first start it writes
+   its API key: `sudo cat openwa/.api-key`, then put it in `.env` as
+   `OPENWA_API_KEY=...` and run `sudo docker compose up -d` again.
+2. In WhatsAstra on the phone, scan the QR code with WhatsApp on your main phone
+   (Settings > Linked devices > Link a device).
+
+**WhatsApp does not offer this officially.** OpenWA speaks WhatsApp's protocol
+through reverse-engineered clients: WhatsApp can restrict or ban an account
+linked this way. Use a number you can afford to lose. Messages pass through this
+server in clear (between WhatsApp's encryption and the phone's TLS connection):
+host it yourself.
+
 ## Market's Today page and default apps
 
 - **Today**: admins write the cards on `/admin/` (features, lists, tips, App and Game of the Day for a date). Without a
