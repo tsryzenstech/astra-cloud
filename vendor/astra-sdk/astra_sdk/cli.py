@@ -90,10 +90,11 @@ def cmd_new(args):
 # -------------------------------------------------------------- check --
 
 def check(app_dir, as_json=False, system=False):
-    problems = lint.check_app(app_dir, system)
+    sys.path.insert(0, os.path.dirname(tool("apkgtool")))
+    import apkgtool
+    # Exactly the files `astra build` would package: nothing that ships goes unchecked.
+    problems = lint.check_app(app_dir, system, apkgtool.collect_files(app_dir))
     try:
-        sys.path.insert(0, os.path.dirname(tool("apkgtool")))
-        import apkgtool
         apkgtool.validate_manifest(read_manifest(app_dir), app_dir)
     except SystemExit:
         raise

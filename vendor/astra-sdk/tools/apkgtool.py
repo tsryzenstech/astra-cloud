@@ -36,6 +36,7 @@ PACKAGE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 WIDGET_SIZES = ("small", "wide")                         # lock screen
 HOME_WIDGET_SIZES = ("small", "medium", "large", "bar")   # home screen
 EXCLUDED_NAMES = {"__pycache__", ".DS_Store", "Thumbs.db"}
+EXCLUDED_DIRS = {"build", "dist"}  # build output (`astra build` writes dist/<package>.apkg)
 EXCLUDED_SUFFIXES = (".qmlc", ".jsc", ".pyc", "~")
 
 assert HEADER.size == 64
@@ -55,6 +56,18 @@ def validate_manifest(manifest, root):
             raise ApkgError(f"app.json: '{key}' has the wrong type")
         return manifest[key]
 
+    packed = None
+
+    def need_file(path, what):
+        nonlocal packed
+        if not os.path.isfile(os.path.join(root, path)):
+            raise ApkgError(f"app.json: {what} points to missing file {path}")
+        if packed is None:
+            packed = {rel for rel, _ in collect_files(root)}
+        if os.path.normpath(path).replace(os.sep, "/") not in packed:
+            raise ApkgError(f"app.json: {what} points to {path}, which is not packaged "
+                            f"(hidden files, {' and '.join(d + '/' for d in sorted(EXCLUDED_DIRS))} are left out)")
+
     package = need("package", str)
     if not PACKAGE_RE.match(package):
         raise ApkgError(f"app.json: invalid package name '{package}'")
@@ -63,9 +76,7 @@ def validate_manifest(manifest, root):
     if need("versionCode", int) < 1:
         raise ApkgError("app.json: versionCode must be >= 1")
     for key in ("main", "icon"):
-        path = need(key, str)
-        if not os.path.isfile(os.path.join(root, path)):
-            raise ApkgError(f"app.json: '{key}' points to missing file {path}")
+        need_file(need(key, str), f"'{key}'")
     perms = manifest.get("permissions", [])
     if not isinstance(perms, list) or not all(isinstance(p, str) for p in perms):
         raise ApkgError("app.json: 'permissions' must be a list of strings")
@@ -85,17 +96,18 @@ def validate_manifest(manifest, root):
         seen.add(widget["id"])
         if "size" in widget and widget["size"] not in WIDGET_SIZES:
             raise ApkgError(f"app.json: widget size must be one of {WIDGET_SIZES}")
-        if not os.path.isfile(os.path.join(root, widget["qml"])):
-            raise ApkgError(f"app.json: widget '{widget['id']}' points to missing file {widget['qml']}")
+        need_file(widget["qml"], f"widget '{widget['id']}'")
     return manifest
 
 
 # -------------------------------------------------------------------- pack --
 
 def collect_files(root):
+    """The (path in the package, path on disk) of every file pack puts in the package.
+    `astra check` lints exactly these, so the two must not walk the tree separately."""
     files = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in EXCLUDED_NAMES)
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in EXCLUDED_NAMES | EXCLUDED_DIRS)
         for name in sorted(filenames):
             if name.startswith(".") or name in EXCLUDED_NAMES or name.endswith(EXCLUDED_SUFFIXES):
                 continue

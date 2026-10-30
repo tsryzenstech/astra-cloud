@@ -75,74 +75,81 @@ def _manifest(app_dir, problems):
     return manifest
 
 
-def check_app(app_dir, system=False):
-    """Returns the list of Problems of the app in app_dir."""
+def _all_files(app_dir):
+    for dirpath, _dirnames, filenames in os.walk(app_dir):
+        for name in sorted(filenames):
+            full = os.path.join(dirpath, name)
+            yield os.path.relpath(full, app_dir).replace(os.sep, "/"), full
+
+
+def check_app(app_dir, system=False, files=None):
+    """Returns the list of Problems of the app in app_dir.
+
+    files: the (relative path, full path) pairs to check, which `astra check`
+    takes from apkgtool.collect_files so that every file that gets packaged is
+    checked. Without it every file under app_dir is."""
     problems = []
     manifest = _manifest(app_dir, problems)
     system_app = system
     accent = (manifest or {}).get("accent", "").lower()
 
-    for dirpath, dirnames, filenames in os.walk(app_dir):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("dist", "build")]
-        for name in sorted(filenames):
-            if not name.endswith(QML_SUFFIXES):
-                continue
-            full = os.path.join(dirpath, name)
-            rel = os.path.relpath(full, app_dir).replace(os.sep, "/")
-            try:
-                with open(full, encoding="utf-8") as f:
-                    lines = f.read().split("\n")
-            except (OSError, UnicodeDecodeError) as e:
-                problems.append(Problem(rel, 1, "error", "E001", f"cannot read: {e}"))
-                continue
-            in_comment = False
-            for n, raw in enumerate(lines, 1):
-                line = raw
-                if in_comment:
-                    if "*/" not in line:
-                        continue
-                    line, in_comment = line.split("*/", 1)[1], False
-                if "/*" in line and "*/" not in line.split("/*", 1)[1]:
-                    line, in_comment = line.split("/*", 1)[0], True
-                code = line.split("//", 1)[0] if "//" in line and "://" not in line else line
-
-                m = IMPORT.match(code)
-                if m:
-                    module = m.group(1)
-                    if module in FORBIDDEN_IMPORTS:
-                        problems.append(Problem(rel, n, "error", "E010", f"import {module}: {FORBIDDEN_IMPORTS[module]}"))
-                    elif module in SYSTEM_ONLY_IMPORTS:
-                        if not system_app:
-                            problems.append(Problem(rel, n, "error", "E011",
-                                                    f"import {module}: apps are native, not web pages in a frame"))
-                    elif module not in ALLOWED_IMPORTS and not code.strip().startswith('import "'):
-                        problems.append(Problem(rel, n, "error", "E012",
-                                                f"import {module}: not part of the astraOS SDK"))
+    for rel, full in (_all_files(app_dir) if files is None else files):
+        if not rel.endswith(QML_SUFFIXES):
+            continue
+        try:
+            with open(full, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+        except (OSError, UnicodeDecodeError) as e:
+            problems.append(Problem(rel, 1, "error", "E001", f"cannot read: {e}"))
+            continue
+        in_comment = False
+        for n, raw in enumerate(lines, 1):
+            line = raw
+            if in_comment:
+                if "*/" not in line:
                     continue
+                line, in_comment = line.split("*/", 1)[1], False
+            if "/*" in line and "*/" not in line.split("/*", 1)[1]:
+                line, in_comment = line.split("/*", 1)[0], True
+            code = line.split("//", 1)[0] if "//" in line and "://" not in line else line
 
-                m = TYPE_USE.match(code)
-                if m and m.group(1) in FORBIDDEN_TYPES and not (system_app and m.group(1) in ("WebEngineView", "WebView")):
-                    problems.append(Problem(rel, n, "error", "E020", f"{m.group(1)}: {FORBIDDEN_TYPES[m.group(1)]}"))
+            m = IMPORT.match(code)
+            if m:
+                module = m.group(1)
+                if module in FORBIDDEN_IMPORTS:
+                    problems.append(Problem(rel, n, "error", "E010", f"import {module}: {FORBIDDEN_IMPORTS[module]}"))
+                elif module in SYSTEM_ONLY_IMPORTS:
+                    if not system_app:
+                        problems.append(Problem(rel, n, "error", "E011",
+                                                f"import {module}: apps are native, not web pages in a frame"))
+                elif module not in ALLOWED_IMPORTS and not code.strip().startswith('import "'):
+                    problems.append(Problem(rel, n, "error", "E012",
+                                            f"import {module}: not part of the astraOS SDK"))
+                continue
 
-                m = FONT_FAMILY.search(code)
-                if m and "Theme.fontFamily" not in m.group(1) and not system_app:
-                    problems.append(Problem(rel, n, "error", "E030", "font.family: use Theme.fontFamily"))
+            m = TYPE_USE.match(code)
+            if m and m.group(1) in FORBIDDEN_TYPES and not (system_app and m.group(1) in ("WebEngineView", "WebView")):
+                problems.append(Problem(rel, n, "error", "E020", f"{m.group(1)}: {FORBIDDEN_TYPES[m.group(1)]}"))
 
-                if not system_app and COLOR_PROP.search(code):
-                    for c in COLOR_LITERAL.finditer(code):
-                        literal = (c.group(1) or "").lower()
-                        if literal and literal == accent:
-                            continue
-                        problems.append(Problem(rel, n, "error", "E040",
-                                                "colour literal: use Theme colours (Theme.text, Theme.accent...) "
-                                                "or the app's 'accent' from app.json (Application.accent)"))
-                        break
+            m = FONT_FAMILY.search(code)
+            if m and "Theme.fontFamily" not in m.group(1) and not system_app:
+                problems.append(Problem(rel, n, "error", "E030", "font.family: use Theme.fontFamily"))
 
-                if PIXEL_SIZE.search(code):
-                    problems.append(Problem(rel, n, "warning", "W050",
-                                            "font.pixelSize: use Theme sizes (Theme.bodySize, Theme.titleSize...)"))
+            if not system_app and COLOR_PROP.search(code):
+                for c in COLOR_LITERAL.finditer(code):
+                    literal = (c.group(1) or "").lower()
+                    if literal and literal == accent:
+                        continue
+                    problems.append(Problem(rel, n, "error", "E040",
+                                            "colour literal: use Theme colours (Theme.text, Theme.accent...) "
+                                            "or the app's 'accent' from app.json (Application.accent)"))
+                    break
 
-                if TEXT_LITERAL.match(code):
-                    problems.append(Problem(rel, n, "warning", "W060",
-                                            "text without qsTr(): it cannot be translated"))
+            if PIXEL_SIZE.search(code):
+                problems.append(Problem(rel, n, "warning", "W050",
+                                        "font.pixelSize: use Theme sizes (Theme.bodySize, Theme.titleSize...)"))
+
+            if TEXT_LITERAL.match(code):
+                problems.append(Problem(rel, n, "warning", "W060",
+                                        "text without qsTr(): it cannot be translated"))
     return problems
