@@ -19,6 +19,7 @@ import { openDatabase } from "./lib/db.js";
 import { Router, HttpError, readBody, readJson, cookies, send, serveStatic, sendFile } from "./lib/http.js";
 import * as sec from "./lib/security.js";
 import { readApkg, ApkgError } from "./lib/apkg.js";
+import { checkDesign, DesignCheckError } from "./lib/design.js";
 import { registerWhatsApp } from "./lib/whatsapp.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,8 @@ const PORT = Number(env.PORT || 8080);
 const DATA = path.resolve(env.DATA_DIR || path.join(ROOT, "data"));
 const PUBLIC_URL = (env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const MAX_APKG = Number(env.MAX_APKG_MB || 300) * 1024 * 1024;
+const DESIGN_CHECK = { python: env.ASTRA_PYTHON || "python3", timeoutMs: Number(env.DESIGN_CHECK_TIMEOUT_S || 30) * 1000,
+                       maxBytes: 4 * MAX_APKG };
 const MASTER = sec.masterKey(env);
 const SECURE_COOKIE = PUBLIC_URL.startsWith("https://");
 
@@ -396,8 +399,10 @@ r.delete("/api/dev/apps/:pkg", async (req, res, p) => {
   send(res, 200, { ok: true });
 });
 
-// Stores a new version of an app from its .apkg; returns the manifest.
-function publishVersion(a, body, notes) {
+// Stores a new version of an app from its .apkg once it passes the design
+// check (vendor/astra-sdk: `astra check`); returns the manifest and the
+// check's warnings. system: only for the seeded default apps.
+async function publishVersion(a, body, notes, { system = false } = {}) {
   let pkg;
   try {
     pkg = readApkg(body);
@@ -410,6 +415,22 @@ function publishVersion(a, body, notes) {
   const prev = latest(a.package);
   if (!Number.isInteger(code) || code < 1) throw new HttpError(400, "versionCode must be a positive integer");
   if (prev && code <= prev.version_code) throw new HttpError(409, `versionCode must be greater than ${prev.version_code}`);
+  let findings;
+  try {
+    findings = await checkDesign(pkg, { ...DESIGN_CHECK, system });
+  } catch (e) {
+    if (e instanceof ApkgError) throw new HttpError(400, e.message);
+    console.error(`design check of ${a.package} ${code}: ${e.message}`);
+    throw new HttpError(503, e instanceof DesignCheckError ? "the design check could not run: try again later" : "the design check failed");
+  }
+  const errors = findings.filter((f) => f.severity === "error");
+  if (errors.length)
+    throw new HttpError(422, `the design check found ${errors.length} error(s): fix them (astra check) and upload again`, { findings });
+  const warnings = findings.filter((f) => f.severity !== "error");
+  // The check takes a moment: the app may have been removed, or this versionCode published, meanwhile.
+  if (!q("SELECT 1 FROM apps WHERE package = ?").get(a.package)) throw new HttpError(404, "no such app");
+  const newest = latest(a.package);
+  if (newest && code <= newest.version_code) throw new HttpError(409, `versionCode must be greater than ${newest.version_code}`);
   fs.mkdirSync(path.join(FILES.apps, a.package), { recursive: true });
   fs.writeFileSync(path.join(FILES.apps, a.package, `${code}.apkg`), body);
   q("INSERT INTO versions (package, version_code, version, size, sha256, notes, manifest, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -423,7 +444,7 @@ function publishVersion(a, body, notes) {
     }
   }
   q("UPDATE apps SET updated = ? WHERE package = ?").run(now(), a.package);
-  return { version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [] };
+  return { version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [], warnings };
 }
 
 // Upload a new version: the raw .apkg as the request body.
@@ -432,7 +453,7 @@ r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
   const a = ownApp(s, p.pkg);
   const body = await readBody(req, MAX_APKG);
   const notes = clean(new URL(req.url, "http://x").searchParams.get("notes") || "", 4000);
-  send(res, 200, { ok: true, ...publishVersion(a, body, notes) });
+  send(res, 200, { ok: true, ...(await publishVersion(a, body, notes)) });
 });
 
 r.delete("/api/dev/apps/:pkg/versions/:code", async (req, res, p) => {
@@ -605,7 +626,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     if (status === 500) console.error(e);
-    if (!res.headersSent) send(res, status, { error: status === 500 ? "internal error" : e.message });
+    if (!res.headersSent) send(res, status, status === 500 ? { error: "internal error" } : { error: e.message, ...e.extra });
   }
 });
 // ---- default apps ----------------------------------------------------------------------------
@@ -613,7 +634,7 @@ const server = http.createServer(async (req, res) => {
 // name, summary, description, category, website, featured, story) is
 // published by the first admin, and updated when a newer versionCode
 // shows up. WhatsAstra ships this way.
-function seedApps() {
+async function seedApps() {
   const dir = path.join(ROOT, "seed");
   if (!fs.existsSync(dir)) return;
   const admin = q("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
@@ -641,15 +662,17 @@ function seedApps() {
       }
       const prev = latest(m.package);
       if (!prev || Number(m.versionCode) > prev.version_code) {
-        publishVersion(a, body, clean(meta.notes || "", 4000));
-        console.log(`seed: published ${m.package} ${m.version}`);
+        const { warnings } = await publishVersion(a, body, clean(meta.notes || "", 4000), { system: true });
+        console.log(`seed: published ${m.package} ${m.version}${warnings.length ? ` (${warnings.length} design warning(s))` : ""}`);
       }
     } catch (e) {
-      console.error(`seed: ${file}: ${e.message}`);
+      const findings = (e.extra?.findings || []).map((f) => `
+  ${f.file}:${f.line}: ${f.severity} ${f.code}: ${f.message}`);
+      console.error(`seed: ${file}: ${e.message}${findings.join("")}`);
     }
   }
 }
-seedApps();
+await seedApps();
 
 server.requestTimeout = 0; // long polls and large uploads
 server.listen(PORT, () => console.log(`astra cloud on :${PORT} (${PUBLIC_URL})`));

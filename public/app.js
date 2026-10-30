@@ -10,7 +10,7 @@ export async function api(method, url, body, raw) {
   }
   const res = await fetch(url, opts);
   const data = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(data?.error || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(data?.error || res.statusText), { data });
   return data;
 }
 

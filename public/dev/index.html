@@ -83,9 +83,18 @@ async function render(user) {
   };
   for (const b of document.querySelectorAll("[data-edit]"))
     b.onclick = () => edit(user, apps.find((a) => a.package === b.dataset.edit));
+  return apps;
 }
 
-function edit(user, a) {
+// The design check's findings ({file, line, severity, code, message}) on an upload.
+function showFindings(title, findings) {
+  document.getElementById("findings").innerHTML = findings.length ? `
+    <p class="small">${esc(title)}</p>
+    <div class="list">${findings.map((f) => `<div class="item"><span class="pill ${f.severity === "error" ? "bad" : "warn"}">${esc(f.code)}</span>
+      <div class="grow">${esc(f.message)}<br><span class="small">${esc(f.file)}:${f.line}</span></div></div>`).join("")}</div>` : "";
+}
+
+function edit(user, a, warnings = []) {
   const el = document.getElementById("editor");
   el.innerHTML = `<section class="card">
     <h2>${esc(a.name)} <span class="small">${esc(a.package)}</span></h2>
@@ -94,6 +103,7 @@ function edit(user, a) {
     <input type="file" id="apkg" accept=".apkg">
     <label>Release notes</label><textarea id="notes" rows="2"></textarea>
     <p><button class="btn" id="upload">Upload</button></p>
+    <div id="findings"></div>
 
     <h3>App page</h3>
     <form id="meta">
@@ -117,6 +127,7 @@ function edit(user, a) {
     <p style="margin-top:24px"><button class="btn danger" id="remove">Remove the app from Market</button></p>
   </section>`;
   el.scrollIntoView({ behavior: "smooth" });
+  showFindings(`Uploaded, with ${warnings.length} design warning(s): they don't block publishing, but fix them in the next version.`, warnings);
   const base = `/api/dev/apps/${encodeURIComponent(a.package)}`;
   const reload = () => render(user);
   document.getElementById("upload").onclick = async () => {
@@ -125,8 +136,12 @@ function edit(user, a) {
     try {
       const r = await api("PUT", `${base}/versions?notes=${encodeURIComponent(document.getElementById("notes").value)}`, undefined, f);
       toast(`Version ${r.version} uploaded`);
-      reload();
-    } catch (err) { toast(err.message); }
+      const apps = await reload();
+      if (r.warnings?.length) edit(user, apps.find((x) => x.package === a.package), r.warnings);
+    } catch (err) {
+      toast(err.message);
+      showFindings(err.message, err.data?.findings || []);
+    }
   };
   document.getElementById("meta").onsubmit = async (e) => {
     e.preventDefault();

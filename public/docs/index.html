@@ -139,7 +139,9 @@ Market verifies on upload.</p>
 <ol class="muted">
   <li>Ask to become a developer on the <a href="/#become">home page</a>; you receive your sign-in once approved.</li>
   <li>In the <a href="/dev/">developer panel</a> create the app with its package name, then upload an <code>.apkg</code>.
-      The package name and a growing <code>versionCode</code> are checked.</li>
+      The package name and a growing <code>versionCode</code> are checked, and so is the design language: Market runs
+      <code>astra check</code> on the package and refuses a version with errors, listing them; warnings are shown but
+      don't block publishing.</li>
   <li>Add the description, category, icon and screenshots, then publish. Updates are new uploads.</li>
 </ol>
 <p>Phones install apps only from Market. People can install an <code>.apkg</code> file directly only after turning on

@@ -46,6 +46,7 @@ form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: var(--raised); color: var(--text2); }
 .pill.ok { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
 .pill.warn { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.pill.bad { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--raised); padding: 12px 20px; border-radius: 999px; box-shadow: 0 10px 30px #0006; display: none; z-index: 50; }
 section { padding: 40px 0; }
 h2 { font-size: 28px; margin: 0 0 18px; }

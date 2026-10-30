@@ -1,10 +1,12 @@
 FROM node:22-alpine
-RUN apk add --no-cache su-exec
+# python3 runs the astraOS SDK design check on uploaded packages (vendor/astra-sdk).
+RUN apk add --no-cache su-exec python3
 WORKDIR /app
 COPY package.json server.js ./
 COPY lib lib
 COPY public public
 COPY seed seed
+COPY vendor vendor
 ENV PORT=8080 DATA_DIR=/data NODE_ENV=production
 VOLUME /data
 EXPOSE 8080
