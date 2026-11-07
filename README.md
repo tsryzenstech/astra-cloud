@@ -76,8 +76,10 @@ Market publishes only apps built from astraOS's own components. Every uploaded `
 - QML or JavaScript under `build/`, `dist/` or a hidden folder, which the check skips, is refused with `400`;
 - if the check cannot run (no Python, timeout) the upload is refused with `503`: nothing is published unchecked.
 
-Every upload is checked as a third-party app, whatever its package name. Only the default apps in `seed/` are checked
-with `--system` (the rules of the apps built into the system image).
+Every upload is checked as a third-party app, whatever its package name. Only the default apps in `seed/` and the
+uploads of astraOS's own apps by an admin with `?system=1` (`PUT /api/dev/apps/com.astra.<app>/versions?system=1`, what
+astra's `apps` workflow sends for every system app) are checked with `--system` (the rules of the apps built into the
+system image). Phones update their system apps from those versions.
 
 The check is a copy of the SDK in `vendor/astra-sdk` (`vendor/astra-sdk/SOURCE` names the astra commit). When the
 design rules change in the astra repository, update it with:

@@ -447,13 +447,19 @@ async function publishVersion(a, body, notes, { system = false } = {}) {
   return { version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [], warnings };
 }
 
-// Upload a new version: the raw .apkg as the request body.
+// Upload a new version: the raw .apkg as the request body. ?system=1 (admins,
+// com.astra.* only) checks it with the rules of the apps built into the system
+// image: astraOS's own apps, which phones update from here (astra's apps workflow).
 r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
   const s = need(req, "developer");
   const a = ownApp(s, p.pkg);
+  const params = new URL(req.url, "http://x").searchParams;
+  const system = params.get("system") === "1";
+  if (system && (s.user.role !== "admin" || !a.package.startsWith("com.astra.")))
+    throw new HttpError(403, "only astraOS's own apps are checked as system apps");
   const body = await readBody(req, MAX_APKG);
-  const notes = clean(new URL(req.url, "http://x").searchParams.get("notes") || "", 4000);
-  send(res, 200, { ok: true, ...(await publishVersion(a, body, notes)) });
+  const notes = clean(params.get("notes") || "", 4000);
+  send(res, 200, { ok: true, ...(await publishVersion(a, body, notes, { system })) });
 });
 
 r.delete("/api/dev/apps/:pkg/versions/:code", async (req, res, p) => {
