@@ -3,79 +3,125 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>astra cloud — Market and AstraID for astraOS</title>
+<title>Market — apps for astraOS</title>
+<meta name="description" content="Market is where astraOS phones find their apps. Browse, search and install.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
 <main>
   <section class="hero"><div class="wrap">
-    <h1>Apps for astraOS</h1>
-    <p>Market is where astraOS phones find their apps. Build one with the astraOS SDK and publish it here for everyone.</p>
-    <a class="btn" href="#become">Become a developer</a>
-    <a class="btn secondary" href="/docs/">Read the SDK docs</a>
+    <h1>Apps for your astraOS phone</h1>
+    <p>Free, light and made to look at home. Open Market on your phone to install, or browse them here.</p>
+    <div class="search">
+      <span id="searchIcon"></span>
+      <input id="q" type="search" placeholder="Search apps" autocomplete="off" aria-label="Search apps">
+    </div>
+    <div class="chips" id="chips"></div>
   </div></section>
 
-  <section id="store"><div class="wrap">
-    <h2>On Market</h2>
+  <section class="block" id="featured"><div class="wrap">
+    <div class="feature" id="today"></div>
+  </div></section>
+
+  <section class="block"><div class="wrap">
+    <h2 id="listTitle">All apps <small id="count"></small></h2>
     <div class="grid" id="apps"><p class="muted">Loading the catalog…</p></div>
   </div></section>
 
-  <section><div class="wrap">
-    <h2>AstraID</h2>
-    <div class="grid">
-      <div class="card"><h3>Find My Device</h3><p class="muted">See where your phone is, make it ring, lock it or send it a message.</p></div>
-      <div class="card"><h3>Contacts backup</h3><p class="muted">Your contacts, encrypted on the server. Nothing else: no photos, videos, audio or files.</p></div>
-      <div class="card"><h3>One account</h3><p class="muted">The same AstraID for Market purchases and every astraOS phone you own.</p></div>
+  <section class="block"><div class="wrap">
+    <h2>One account for your phones</h2>
+    <div class="cols">
+      <div class="panel"><div class="glyph" id="g1"></div><h3>Find My Device</h3><p>See where your phone is, make it ring, lock it or send it a message.</p></div>
+      <div class="panel"><div class="glyph" id="g2"></div><h3>Contacts backup</h3><p>Your contacts, encrypted on the server. Nothing else: no photos, videos, audio or files.</p></div>
+      <div class="panel"><div class="glyph" id="g3"></div><h3>Your name, everywhere</h3><p>Sign in with AstraID on the phone and your name follows you through the system.</p></div>
     </div>
-    <p style="margin-top:18px"><a class="btn secondary" href="/id/">Open AstraID</a></p>
+    <p style="margin-top:20px"><a class="btn" href="/id/">Open AstraID</a></p>
   </div></section>
 
-  <section id="become"><div class="wrap">
-    <h2>Become a developer</h2>
-    <div class="card" style="max-width:720px">
-      <p class="muted">Tell us about you and what you want to build. Once your request is approved you get access to the developer panel, where you upload your apps, update them and edit their pages.</p>
+  <section class="block" id="become"><div class="wrap">
+    <h2>Make an app</h2>
+    <div class="panel" style="max-width:720px">
+      <p class="muted" style="margin-top:0">Build it with the astraOS SDK and publish it here. Tell us about you; once your request is approved you can upload apps from the <a href="/dev/" style="text-decoration:underline">developer panel</a>.</p>
       <form id="request">
-        <div class="row">
+        <div class="two">
           <div><label>Name</label><input name="name" required maxlength="80"></div>
           <div><label>Email</label><input name="email" type="email" required></div>
         </div>
-        <div class="row">
+        <div class="two">
           <div><label>Company (optional)</label><input name="company" maxlength="80"></div>
           <div><label>Website or GitHub (optional)</label><input name="website" maxlength="200"></div>
         </div>
         <label>What will you publish?</label>
-        <textarea name="message" rows="4" maxlength="2000"></textarea>
+        <textarea name="message" rows="3" maxlength="2000"></textarea>
         <p><button class="btn" type="submit">Send request</button></p>
       </form>
     </div>
   </div></section>
 </main>
-<footer><div class="wrap">astra cloud · <a href="/docs/">SDK documentation</a> · <a href="/dev/">Developer panel</a> · <a href="/id/">AstraID</a></div></footer>
 
 <script type="module">
-import { api, toast, esc, header } from "/app.js";
-header("store");
+import { api, toast, esc, bar, foot, icons } from "/site.js";
+bar("market");
+foot();
+document.getElementById("searchIcon").outerHTML = icons.search;
+document.getElementById("g1").innerHTML = icons.pin;
+document.getElementById("g2").innerHTML = icons.people;
+document.getElementById("g3").innerHTML = icons.key;
 
-const list = await api("GET", "/api/store/index.json").catch(() => []);
-document.getElementById("apps").innerHTML = list.length ? list.map((a) => `
-  <a class="card" href="/store/${esc(a.package)}" style="display:flex;gap:14px;align-items:center;color:inherit;text-decoration:none">
-    <img class="icon" src="${esc(a.icon || "/assets/grid.svg")}" alt="">
-    <div><b>${esc(a.name)}</b><div class="small">${esc(a.category)} · ${esc(a.version)}</div>
-    <div class="muted" style="font-size:14px">${esc(a.summary || "")}</div></div>
-  </a>`).join("") : `<p class="muted">No apps published yet.</p>`;
+let apps = [];
+let category = "All";
+const $ = (id) => document.getElementById(id);
 
-document.getElementById("request").addEventListener("submit", async (e) => {
+const card = (a) => `
+  <a class="app" href="/store/${esc(a.package)}">
+    <img class="ic" src="${esc(a.icon || "/assets/grid.svg")}" alt="" loading="lazy">
+    <div style="min-width:0"><b>${esc(a.name)}</b>
+      <div class="meta">${esc(a.category)} · ${esc(a.version)}</div>
+      <div class="sum">${esc(a.summary || "")}</div></div>
+  </a>`;
+
+function draw() {
+  const q = $("q").value.trim().toLowerCase();
+  const list = apps.filter((a) => (category === "All" || a.category === category) &&
+    (!q || `${a.name} ${a.summary} ${a.category} ${a.package}`.toLowerCase().includes(q)));
+  $("apps").innerHTML = list.length ? list.map(card).join("")
+    : `<div class="empty" style="grid-column:1/-1">${apps.length ? "Nothing matches your search." : "No apps published yet."}</div>`;
+  $("count").textContent = list.length ? `${list.length}` : "";
+  $("listTitle").firstChild.textContent = q ? "Results " : category === "All" ? "All apps " : category + " ";
+  $("featured").style.display = q || category !== "All" || !$("today").children.length ? "none" : "";
+  for (const c of $("chips").children) c.classList.toggle("on", c.dataset.c === category);
+}
+
+function today(t) {
+  const cards = [t.appOfTheDay, t.gameOfTheDay].filter(Boolean);
+  $("today").innerHTML = cards.map((s, i) => {
+    const a = s.apps && s.apps[0];
+    const bg = s.image ? `url(${esc(s.image)}) center/cover` : `linear-gradient(140deg, ${esc(s.color || "#ff7a00")}, #1a1030)`;
+    return `<a class="today" href="${a ? "/store/" + esc(a.package) : "#"}" style="background:${bg}">
+      ${a && a.icon ? `<img class="big" src="${esc(a.icon)}" alt="">` : ""}
+      <div class="eyebrow">${esc(s.eyebrow || "")}</div><h3>${esc(s.title)}</h3><p>${esc(s.subtitle || "")}</p></a>`;
+  }).join("");
+}
+
+try {
+  apps = await api("GET", "/api/store/index.json");
+} catch { apps = []; }
+const cats = ["All", ...new Set(apps.map((a) => a.category).filter(Boolean))].sort((a, b) => (a === "All" ? -1 : b === "All" ? 1 : a.localeCompare(b)));
+$("chips").innerHTML = cats.length > 2 ? cats.map((c) => `<button class="chip" data-c="${esc(c)}">${esc(c)}</button>`).join("") : "";
+$("chips").onclick = (e) => { const c = e.target.closest("[data-c]"); if (c) { category = c.dataset.c; draw(); } };
+$("q").oninput = draw;
+try { today(await api("GET", "/api/store/today")); } catch { /* the catalog alone */ }
+draw();
+
+$("request").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const data = Object.fromEntries(new FormData(e.target));
   try {
-    await api("POST", "/api/dev-requests", data);
+    await api("POST", "/api/dev-requests", Object.fromEntries(new FormData(e.target)));
     e.target.reset();
     toast("Thanks! We'll get back to you by email.");
-  } catch (err) {
-    toast(err.message);
-  }
+  } catch (err) { toast(err.message); }
 });
 </script>
 </body>

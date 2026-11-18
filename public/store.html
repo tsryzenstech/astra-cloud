@@ -5,41 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Market — astraOS</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
-<style>
-  .shots { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
-  .shots img { height: 420px; border-radius: 26px; border: 1px solid var(--line); flex: none; }
-  .head { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
-  .head .icon { width: 120px; height: 120px; }
-</style>
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<main class="wrap" style="padding-top:30px" id="main"><p class="muted">Loading…</p></main>
+<main class="wrap" id="main"><p class="muted" style="padding:60px 0">Loading…</p></main>
 <script type="module">
-import { api, esc, size, ago, header } from "/app.js";
-header("store");
+import { api, esc, size, ago, bar, foot } from "/site.js";
+bar("market");
 const pkg = decodeURIComponent(location.pathname.split("/").filter(Boolean)[1] || "");
 const main = document.getElementById("main");
 try {
   const a = await api("GET", `/api/store/apps/${encodeURIComponent(pkg)}`);
   document.title = `${a.name} — Market`;
+  const shots = a.screenshots || [];
   main.innerHTML = `
-    <div class="head">
-      <img class="icon" src="${esc(a.icon || "/assets/grid.svg")}" alt="">
-      <div><h1 style="margin:0">${esc(a.name)}</h1>
-        <div class="muted">${esc(a.developer)} · ${esc(a.category)}</div>
-        <div class="small">Version ${esc(a.version)} · ${size(a.size)} · ${a.downloads} downloads</div>
-        <p style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="${esc(a.url)}">Download .apkg</a>
-        ${a.website ? `<a class="btn secondary" href="${esc(a.website)}" rel="noopener">Website</a>` : ""}</p></div>
+    <div class="appHead">
+      <img class="ic" src="${esc(a.icon || "/assets/grid.svg")}" alt="">
+      <div style="flex:1;min-width:240px">
+        <h1>${esc(a.name)}</h1>
+        <div class="muted">${esc(a.developer)}</div>
+        <p class="muted" style="margin:8px 0 14px">${esc(a.summary || "")}</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn" href="${esc(a.url)}">Download</a>
+          ${a.website ? `<a class="btn soft" href="${esc(a.website)}" rel="noopener">Website</a>` : ""}
+        </div>
+      </div>
     </div>
-    <p class="small">On your astraOS phone open Market to install it, or download the .apkg and open it with Files.</p>
-    ${a.screenshots.length ? `<section><div class="shots">${a.screenshots.map((s) => `<img src="${esc(s)}" alt="">`).join("")}</div></section>` : ""}
-    <section><h2>About</h2><p class="muted" style="white-space:pre-wrap">${esc(a.description || a.summary)}</p></section>
-    <section><h2>What's new</h2><div class="list">${a.versions.map((v) => `<div class="item"><div class="grow"><b>${esc(v.version)}</b> <span class="small">${ago(v.created)} · ${size(v.size)}</span><br>
-      <span class="muted" style="font-size:14px">${esc(v.notes || "Improvements and fixes.")}</span></div></div>`).join("")}</div></section>`;
+    <div class="facts">
+      <div><b>${esc(a.category)}</b><span>Category</span></div>
+      <div><b>${esc(a.version)}</b><span>Version</span></div>
+      <div><b>${size(a.size)}</b><span>Size</span></div>
+      <div><b>${a.downloads}</b><span>Downloads</span></div>
+    </div>
+    ${shots.length ? `<section class="block"><div class="shots">${shots.map((s) => `<img src="${esc(s)}" alt="" loading="lazy">`).join("")}</div></section>` : ""}
+    <section class="block"><h2>About</h2><p class="muted" style="white-space:pre-wrap;max-width:760px">${esc(a.description || a.summary)}</p></section>
+    <section class="block"><h2>How to install</h2>
+      <div class="panel how"><div class="num">1</div><div><b>On your phone</b><br><span class="muted">Open Market, find ${esc(a.name)} and tap Get.</span></div></div>
+      <div class="panel how" style="margin-top:10px"><div class="num">2</div><div><b>Or from a file</b><br><span class="muted">Download the package above, then open it with Files on your astraOS phone.</span></div></div>
+    </section>
+    <section class="block"><h2>What's new</h2><div class="panel versions">${a.versions.map((v) => `
+      <div class="row"><b>${esc(v.version)}</b> <span class="small">${ago(v.created)} · ${size(v.size)}</span><br>
+      <span class="muted" style="font-size:14.5px">${esc(v.notes || "Improvements and fixes.")}</span></div>`).join("")}</div></section>`;
 } catch (e) {
-  main.innerHTML = `<div class="card"><h2>App not found</h2><p class="muted">It may have been removed from Market. <a href="/#store">See all apps</a>.</p></div>`;
+  main.innerHTML = `<div class="auth"><div class="panel"><h2>App not found</h2><p class="muted">It may have been removed from Market.</p><a class="btn" href="/">See all apps</a></div></div>`;
 }
+foot();
 </script>
 </body>
 </html>

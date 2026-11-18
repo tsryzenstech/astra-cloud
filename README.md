@@ -6,7 +6,7 @@ plus Python 3 for the design check of uploaded apps.
 - **Market**: the catalog phones read (`/api/store/index.json`), app pages (`/store/<package>`), downloads. There's also a developer panel (`/dev/`), a landing page with a developer request form (`/`), SDK docs (`/docs/`) and an admin page (`/admin/`).
 - **AstraID**: accounts and Find My Device: location, play a sound, lock, and notifications sent to the phone. Contacts are backed up encrypted with AES-256-GCM, using a per-account key wrapped by `MASTER_KEY`. **Nothing else is backed up**: no files, photos, videos or audio.
 
-## Hosting on 34.155.86.153
+## Hosting on market.nebulaos.it
 
 1. On the server (Debian/Ubuntu), install Docker:
    ```bash
@@ -24,7 +24,7 @@ plus Python 3 for the design check of uploaded apps.
    sudo docker compose up -d --build
    ```
 4. Open ports 80 and 443. On Google Cloud that's VPC network › Firewall: allow tcp:80,443, or tick "Allow HTTP/HTTPS traffic" on the VM.
-5. Open `http://34.155.86.153/dev/` (with `http://`: on the bare IP there is no HTTPS, so `https://` is refused) and sign in with the admin account.
+5. Open `https://market.nebulaos.it/dev/` and sign in with the admin account.
 
 **If the page says 502 Bad Gateway**, Caddy is running but the server isn't: `sudo docker compose logs cloud` says why
 (usually an empty or wrong `MASTER_KEY` in `.env`).

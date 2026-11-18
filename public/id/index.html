@@ -6,14 +6,15 @@
 <title>AstraID</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<main class="wrap" style="padding-top:30px" id="main"></main>
+<main class="wrap" id="main"></main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
-import { api, toast, esc, ago, me, header } from "/app.js";
-header("id");
+import { api, toast, esc, ago, me, bar, foot, icons } from "/site.js";
+bar("id");
+foot();
 const main = document.getElementById("main");
 let map, markers = [], selected = null, refresh;
 
@@ -24,17 +25,17 @@ async function start() {
 }
 
 function signIn(register = false) {
-  main.innerHTML = `<div class="card" style="max-width:420px;margin:40px auto">
+  main.innerHTML = `<div class="auth"><div class="panel">
     <h2>${register ? "Create your AstraID" : "Sign in to AstraID"}</h2>
-    <p class="muted">Find your phone, make it ring or lock it, and keep your contacts backed up.</p>
+    <p class="muted">Find your phone, make it ring or lock it, and keep your contacts backed up. Your name on the phone is the one of your AstraID.</p>
     <form id="auth">
       ${register ? `<label>Name</label><input name="name" maxlength="80">` : ""}
       <label>Email</label><input name="email" type="email" required autocomplete="email">
       <label>Password</label><input name="password" type="password" required minlength="${register ? 8 : 1}" autocomplete="${register ? "new-password" : "current-password"}">
       <p><button class="btn">${register ? "Create AstraID" : "Sign in"}</button></p>
     </form>
-    <p class="small">${register ? `Already have one? <a href="#" id="swap">Sign in</a>` : `New here? <a href="#" id="swap">Create an AstraID</a>`}</p>
-  </div>`;
+    <p class="small">${register ? `Already have one? <a href="#" id="swap" style="text-decoration:underline">Sign in</a>` : `New here? <a href="#" id="swap" style="text-decoration:underline">Create an AstraID</a>`}</p>
+  </div></div>`;
   document.getElementById("swap").onclick = (e) => { e.preventDefault(); signIn(!register); };
   document.getElementById("auth").onsubmit = async (e) => {
     e.preventDefault();
@@ -47,28 +48,28 @@ function signIn(register = false) {
 
 async function render(user) {
   main.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <h1 style="margin:0">Hi, ${esc(user.name)}</h1>
-      <span class="pill">${esc(user.email)}</span>
-      <button class="btn sm secondary" id="logout" style="margin-left:auto">Sign out</button>
+    <div class="who">
+      <div class="avatar">${esc((user.name || user.email || "?").trim().charAt(0).toUpperCase())}</div>
+      <div><h1>${esc(user.name || user.email)}</h1><span class="small">${esc(user.email)}</span></div>
+      <button class="btn sm soft" id="logout" style="margin-left:auto">Sign out</button>
     </div>
-    <section>
+    <section class="block">
       <h2>Find My Device</h2>
       <div id="map"></div>
       <div class="list" id="devices" style="margin-top:16px"></div>
       <div id="actions"></div>
     </section>
-    <section>
+    <section class="block">
       <h2>Contacts backup</h2>
-      <div class="card" id="contacts"><p class="muted">Loading…</p></div>
+      <div class="panel" id="contacts"><p class="muted">Loading…</p></div>
     </section>
-    <section>
+    <section class="block">
       <h2>Account</h2>
-      <div class="card" style="max-width:720px">
-        <form id="password"><div class="row">
+      <div class="panel" style="max-width:720px">
+        <form id="password"><div class="two">
           <div><label>Current password</label><input name="current" type="password" required autocomplete="current-password"></div>
           <div><label>New password</label><input name="password" type="password" required minlength="8" autocomplete="new-password"></div>
-        </div><p><button class="btn secondary">Change password</button></p></form>
+        </div><p><button class="btn soft">Change password</button></p></form>
         <p class="small">Deleting your AstraID removes your devices, your contacts backup and your Market apps from the server.</p>
         <button class="btn danger" id="delete">Delete AstraID</button>
       </div>
@@ -101,8 +102,8 @@ async function loadDevices() {
   box.innerHTML = list.map((d) => {
     const r = d.report || {};
     const online = d.lastSeen && Date.now() - d.lastSeen < 120000;
-    return `<div class="item" data-id="${d.id}" style="cursor:pointer;${selected === d.id ? "background:var(--raised)" : ""}">
-      <img class="icon" src="/assets/devices.svg" alt="" style="padding:12px;filter:var(--logo-filter,none)">
+    return `<div class="item${selected === d.id ? " sel" : ""}" data-id="${d.id}" style="cursor:pointer">
+      <div class="glyph">${icons.phone}</div>
       <div class="grow"><b>${esc(d.name)}</b> <span class="small">${esc(d.model)} · ${esc(d.os)}</span><br>
         <span class="small">${online ? "Online" : "Last seen " + ago(d.lastSeen)}${r.battery != null ? ` · battery ${r.battery}%${r.charging ? " (charging)" : ""}` : ""}${r.network ? " · " + esc(r.network) : ""}${r.location ? ` · located ${ago(r.location.time)}` : " · no location yet"}</span></div>
       <span class="pill ${d.findMy ? "ok" : "warn"}">${d.findMy ? "Find My on" : "Find My off"}</span>
@@ -137,16 +138,16 @@ function select(d) {
 async function actions(d, scroll) {
   const el = document.getElementById("actions");
   const history = await api("GET", `/api/id/devices/${d.id}/commands`).catch(() => []);
-  el.innerHTML = `<div class="card" style="margin-top:16px">
+  el.innerHTML = `<div class="panel" style="margin-top:16px">
     <h3>${esc(d.name)}</h3>
     ${d.findMy ? `<p style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn" data-cmd="ring">Play sound</button>
-      <button class="btn secondary" data-cmd="locate">Locate now</button>
-      <button class="btn secondary" data-cmd="lock">Lock</button>
+      <button class="btn soft" data-cmd="locate">Locate now</button>
+      <button class="btn soft" data-cmd="lock">Lock</button>
     </p>
-    <form id="notify"><div class="row"><div><label>Notification title</label><input name="title" maxlength="80" required></div>
+    <form id="notify"><div class="two"><div><label>Notification title</label><input name="title" maxlength="80" required></div>
       <div><label>Message</label><input name="body" maxlength="500"></div></div>
-      <p><button class="btn secondary">Send notification</button></p></form>`
+      <p><button class="btn soft">Send notification</button></p></form>`
     : `<p class="muted">Find My Device is turned off on this phone (Settings › AstraID).</p>`}
     <h3 style="margin-top:20px">Recent requests</h3>
     <div class="small">${history.map((c) => `${esc(c.type)} · ${esc(c.state)}${c.result ? " · " + esc(c.result) : ""} · ${ago(c.created)}`).join("<br>") || "None"}</div>
@@ -178,7 +179,7 @@ async function loadContacts() {
     ${data.updated ? `<p><b>${list.length}</b> contacts · backed up ${ago(data.updated)}</p>
       <input id="filter" placeholder="Search contacts">
       <div class="list" style="margin-top:12px;max-height:360px;overflow:auto" id="clist"></div>
-      <p style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn sm secondary" id="vcf">Download as vCard</button>
+      <p style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn sm soft" id="vcf">Download as vCard</button>
       <button class="btn sm danger" id="wipe">Delete backup</button></p>`
     : `<p class="small">No backup yet. Turn on contacts backup in Settings › AstraID on your phone.</p>`}`;
   if (!data.updated) return;
