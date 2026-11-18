@@ -66,6 +66,9 @@ async function render(user) {
     <section class="block">
       <h2>Account</h2>
       <div class="panel" style="max-width:720px">
+        <form id="profile"><label>Your name</label>
+          <div style="display:flex;gap:10px"><input name="name" value="${esc(user.name)}" maxlength="80" required><button class="btn soft">Save</button></div>
+          <p class="small">It is the name your phones show as theirs.</p></form>
         <form id="password"><div class="two">
           <div><label>Current password</label><input name="current" type="password" required autocomplete="current-password"></div>
           <div><label>New password</label><input name="password" type="password" required minlength="8" autocomplete="new-password"></div>
@@ -75,6 +78,11 @@ async function render(user) {
       </div>
     </section>`;
   document.getElementById("logout").onclick = async () => { await api("POST", "/api/auth/logout"); clearInterval(refresh); start(); };
+  document.getElementById("profile").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api("POST", "/api/auth/profile", Object.fromEntries(new FormData(e.target))); toast("Name saved"); start(); }
+    catch (err) { toast(err.message); }
+  };
   document.getElementById("password").onsubmit = async (e) => {
     e.preventDefault();
     try { await api("POST", "/api/auth/password", Object.fromEntries(new FormData(e.target))); e.target.reset(); toast("Password changed"); }

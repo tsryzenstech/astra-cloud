@@ -142,6 +142,16 @@ r.get("/api/auth/me", async (req, res) => {
   send(res, 200, { id, email, name, role });
 });
 
+// The name of the AstraID: it is the owner's name on every phone signed in with it.
+r.post("/api/auth/profile", async (req, res) => {
+  const s = need(req);
+  const b = await readJson(req);
+  const name = clean(b.name, 80);
+  if (!name) throw new HttpError(400, "enter a name");
+  q("UPDATE users SET name = ? WHERE id = ?").run(name, s.user.id);
+  send(res, 200, { id: s.user.id, email: s.user.email, name, role: s.user.role });
+});
+
 r.post("/api/auth/password", async (req, res) => {
   const s = need(req);
   const b = await readJson(req);
@@ -552,7 +562,8 @@ r.post("/api/device/report", async (req, res) => {
   if (!report.location && prev?.report) report.location = JSON.parse(prev.report).location || null; // keep the last known place
   q("UPDATE devices SET report = ?, last_seen = ?, os = ?, find_my = ? WHERE id = ?")
     .run(JSON.stringify(report), now(), report.os, b.findMy === false ? 0 : 1, s.deviceId);
-  send(res, 200, { ok: true });
+  // The phone keeps the AstraID's name as its owner's: a name changed on the web reaches it with the next report.
+  send(res, 200, { ok: true, user: { name: s.user.name } });
 });
 
 r.get("/api/device/commands", async (req, res) => {
