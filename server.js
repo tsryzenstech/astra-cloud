@@ -21,6 +21,7 @@ import * as sec from "./lib/security.js";
 import { readApkg, ApkgError } from "./lib/apkg.js";
 import { checkDesign, DesignCheckError } from "./lib/design.js";
 import { registerWhatsApp } from "./lib/whatsapp.js";
+import { registerLink } from "./lib/link.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -118,9 +119,10 @@ r.post("/api/auth/login", async (req, res) => {
 function login(res, userId, device) {
   const u = q("SELECT id, email, name, role FROM users WHERE id = ?").get(userId);
   if (device && typeof device === "object") {
-    // A phone signing in: it becomes one of the account's devices.
-    const d = q("INSERT INTO devices (user_id, name, model, os, created) VALUES (?, ?, ?, ?, ?)")
-      .run(userId, clean(device.name, 60) || "astraOS phone", clean(device.model, 60), clean(device.os, 60), now());
+    // A phone or a desktop signing in: it becomes one of the account's devices ("kind": phone, the default, or desktop).
+    const kind = device.kind === "desktop" ? "desktop" : "phone";
+    const d = q("INSERT INTO devices (user_id, name, model, os, kind, created) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(userId, clean(device.name, 60) || (kind === "desktop" ? "astraOS desktop" : "astraOS phone"), clean(device.model, 60), clean(device.os, 60), kind, now());
     const token = startSession(userId, Number(d.lastInsertRowid));
     return send(res, 200, { token, deviceId: Number(d.lastInsertRowid), user: u });
   }
@@ -219,45 +221,74 @@ r.post("/api/admin/apps/:pkg/feature", async (req, res, p) => {
 });
 
 // ---- store (public) ---------------------------------------------------------------------
-function latest(pkg) {
-  return q("SELECT * FROM versions WHERE package = ? ORDER BY version_code DESC LIMIT 1").get(pkg);
+// An app has ONE page and one entry in the catalog, with up to two builds of each version (app.json "target":
+// "mobile", the default, and "desktop"). Which one a device installs is the device's: a phone installs the
+// mobile build; astraOS Desktop the desktop build, or, when the app has none, the mobile build, which runs
+// there in a window with a phone's aspect ratio. An app with a desktop build only is not offered to phones.
+const TARGETS = ["mobile", "desktop"];
+function latest(pkg, target = "mobile") {
+  return q("SELECT * FROM versions WHERE package = ? AND target = ? ORDER BY version_code DESC LIMIT 1").get(pkg, target);
 }
-function catalogEntry(a) {
-  const v = latest(a.package);
+// The build `device` installs, or undefined.
+function buildFor(pkg, device) {
+  return (device === "desktop" && latest(pkg, "desktop")) || latest(pkg, "mobile");
+}
+// Which device is asking: ?target=desktop|mobile (Market says), else the User-Agent the astraOS runtime
+// sends ("astraOS/27.2 (<package>; desktop; +...)"), else a phone, as before there were desktops.
+function deviceOf(req) {
+  const t = new URL(req.url, "http://x").searchParams.get("target");
+  if (TARGETS.includes(t)) return t;
+  return /astraOS\/[^ ]+ \([^)]*; desktop;/i.test(req.headers["user-agent"] || "") ? "desktop" : "mobile";
+}
+const fileName = (v) => `${v.version_code}${v.target === "desktop" ? ".desktop" : ""}.apkg`;
+function catalogEntry(a, device = "mobile") {
+  const v = buildFor(a.package, device);
   if (!v) return null;
   return {
     package: a.package, name: a.name, summary: a.summary, description: a.summary || a.description, category: a.category,
     featured: !!a.featured, version: v.version, versionCode: v.version_code, size: v.size, sha256: v.sha256,
-    url: `${PUBLIC_URL}/files/apps/${a.package}/${v.version_code}.apkg`,
+    target: v.target,   // the build this entry downloads
+    targets: TARGETS.filter((t) => latest(a.package, t)),   // the builds the app has
+    url: `${PUBLIC_URL}/files/apps/${a.package}/${fileName(v)}`,
     icon: a.has_icon ? `${PUBLIC_URL}/files/icons/${a.package}` : "",
     page: `${PUBLIC_URL}/store/${a.package}`,
   };
 }
 
-// The catalog Market reads (a JSON list, newest updates first).
+// The catalog Market reads (a JSON list, newest updates first): the builds of the asking device.
 r.get("/api/store/index.json", async (req, res) => {
+  const device = deviceOf(req);
   const apps = q("SELECT * FROM apps WHERE published = 1 ORDER BY featured DESC, updated DESC").all();
-  send(res, 200, apps.map(catalogEntry).filter(Boolean), { "Cache-Control": "public, max-age=60" });
+  send(res, 200, apps.map((a) => catalogEntry(a, device)).filter(Boolean), { "Cache-Control": "public, max-age=60", Vary: "User-Agent" });
 });
 
 r.get("/api/store/apps/:pkg", async (req, res, p) => {
   const a = q("SELECT * FROM apps WHERE package = ? AND published = 1").get(p.pkg);
   if (!a) throw new HttpError(404, "no such app");
   const owner = q("SELECT name FROM users WHERE id = ?").get(a.owner_id);
+  const device = deviceOf(req);
+  // One page for every device: the entry is the asking device's build (or the first there is, for a page
+  // opened in a browser, which installs nothing), and "variants" lists them all.
+  const entry = catalogEntry(a, device) || catalogEntry(a, "desktop");
   send(res, 200, {
-    ...catalogEntry(a), description: a.description, website: a.website, developer: owner?.name || "", downloads: a.downloads,
+    ...entry, device, compatible: !!catalogEntry(a, device),
+    variants: TARGETS.map((t) => latest(a.package, t)).filter(Boolean).map((v) => ({
+      target: v.target, version: v.version, versionCode: v.version_code, size: v.size, url: `${PUBLIC_URL}/files/apps/${a.package}/${fileName(v)}` })),
+    description: a.description, website: a.website, developer: owner?.name || "", downloads: a.downloads,
     screenshots: Array.from({ length: a.screenshots }, (_, i) => `${PUBLIC_URL}/files/screens/${a.package}/${i}`),
-    versions: q("SELECT version, version_code AS versionCode, size, notes, created FROM versions WHERE package = ? ORDER BY version_code DESC").all(a.package),
-  });
+    versions: q("SELECT version, version_code AS versionCode, target, size, notes, created FROM versions WHERE package = ? ORDER BY version_code DESC, target").all(a.package),
+  }, { Vary: "User-Agent" });
 });
 
 r.get("/files/apps/:pkg/:file", async (req, res, p) => {
-  const code = Number(String(p.file).replace(/\.apkg$/, ""));
-  const v = q("SELECT * FROM versions WHERE package = ? AND version_code = ?").get(p.pkg, code);
+  const m = /^(\d+)(\.desktop)?\.apkg$/.exec(String(p.file));
+  if (!m) throw new HttpError(404, "not found");
+  const code = Number(m[1]), target = m[2] ? "desktop" : "mobile";
+  const v = q("SELECT * FROM versions WHERE package = ? AND target = ? AND version_code = ?").get(p.pkg, target, code);
   if (!v) throw new HttpError(404, "not found");
   q("UPDATE apps SET downloads = downloads + 1 WHERE package = ?").run(p.pkg);
-  sendFile(res, path.join(FILES.apps, p.pkg, `${code}.apkg`), "application/x-astra-apkg",
-           { "Content-Disposition": `attachment; filename="${p.pkg}-${v.version}.apkg"` });
+  sendFile(res, path.join(FILES.apps, p.pkg, fileName(v)), "application/x-astra-apkg",
+           { "Content-Disposition": `attachment; filename="${p.pkg}-${v.version}${target === "desktop" ? "-desktop" : ""}.apkg"` });
 });
 r.get("/files/icons/:pkg", async (req, res, p) => sendFile(res, path.join(FILES.icons, p.pkg), iconType(path.join(FILES.icons, p.pkg))));
 r.get("/files/screens/:pkg/:n", async (req, res, p) => sendFile(res, path.join(FILES.screens, p.pkg, String(Number(p.n))), "image/png"));
@@ -271,10 +302,10 @@ function iconType(file) {
 }
 
 // ---- Market: Today page ------------------------------------------------------------------
-function storyView(s) {
+function storyView(s, device = "mobile") {
   const apps = JSON.parse(s.packages || "[]")
     .map((pkg) => q("SELECT * FROM apps WHERE package = ? AND published = 1").get(pkg))
-    .filter(Boolean).map(catalogEntry).filter(Boolean);
+    .filter(Boolean).map((a) => catalogEntry(a, device)).filter(Boolean);
   return {
     id: s.id, kind: s.kind, eyebrow: s.eyebrow, title: s.title, subtitle: s.subtitle, body: s.body, color: s.color,
     image: s.has_image ? `${PUBLIC_URL}/files/stories/${s.id}?${s.created}` : "", day: s.day, apps,
@@ -286,12 +317,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 // Day (picked from the catalog when no admin chose one), charts, new apps.
 r.get("/api/store/today", async (req, res) => {
   const day = today();
-  const published = q("SELECT * FROM apps WHERE published = 1").all().filter((a) => latest(a.package));
+  const device = deviceOf(req);
+  const published = q("SELECT * FROM apps WHERE published = 1").all().filter((a) => buildFor(a.package, device));
   const stories = q("SELECT * FROM stories WHERE published = 1 AND (day = '' OR day = ?) ORDER BY position, created DESC")
-    .all(day).map(storyView);
+    .all(day).map((s) => storyView(s, device));
   // A different app every day, the same one for everybody.
   const seed = [...day].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-  const pick = (list) => (list.length ? catalogEntry(list[seed % list.length]) : null);
+  const pick = (list) => (list.length ? catalogEntry(list[seed % list.length], device) : null);
   const games = published.filter((a) => a.category === "Games");
   const others = published.filter((a) => a.category !== "Games");
   const ofDay = (kind, list, eyebrow) => {
@@ -305,10 +337,10 @@ r.get("/api/store/today", async (req, res) => {
     appOfTheDay: ofDay("app_of_day", others.filter((a) => a.featured).length ? others.filter((a) => a.featured) : others, "APP OF THE DAY"),
     gameOfTheDay: ofDay("game_of_day", games, "GAME OF THE DAY"),
     stories: stories.filter((s) => s.kind !== "app_of_day" && s.kind !== "game_of_day"),
-    top: published.slice().sort((a, b) => b.downloads - a.downloads).slice(0, 10).map(catalogEntry),
-    fresh: published.slice().sort((a, b) => b.created - a.created).slice(0, 10).map(catalogEntry),
+    top: published.slice().sort((a, b) => b.downloads - a.downloads).slice(0, 10).map((a) => catalogEntry(a, device)),
+    fresh: published.slice().sort((a, b) => b.created - a.created).slice(0, 10).map((a) => catalogEntry(a, device)),
     categories: [...new Set(published.map((a) => a.category))].sort(),
-  }, { "Cache-Control": "public, max-age=120" });
+  }, { "Cache-Control": "public, max-age=120", Vary: "User-Agent" });
 });
 r.get("/files/stories/:id", async (req, res, p) => sendFile(res, path.join(FILES.stories, String(Number(p.id))), iconType(path.join(FILES.stories, String(Number(p.id))))));
 
@@ -372,8 +404,8 @@ r.get("/api/dev/apps", async (req, res) => {
   const s = need(req, "developer");
   const apps = s.user.role === "admin" ? q("SELECT * FROM apps ORDER BY updated DESC").all()
                                        : q("SELECT * FROM apps WHERE owner_id = ? ORDER BY updated DESC").all(s.user.id);
-  send(res, 200, apps.map((a) => ({ ...a, latest: latest(a.package) || null,
-                                    versions: q("SELECT version, version_code, size, notes, created FROM versions WHERE package = ? ORDER BY version_code DESC").all(a.package) })));
+  send(res, 200, apps.map((a) => ({ ...a, latest: latest(a.package) || null, latestDesktop: latest(a.package, "desktop") || null,
+                                    versions: q("SELECT version, version_code, target, size, notes, created FROM versions WHERE package = ? ORDER BY version_code DESC, target").all(a.package) })));
 });
 
 r.post("/api/dev/apps", async (req, res) => {
@@ -422,7 +454,11 @@ async function publishVersion(a, body, notes, { system = false } = {}) {
   const m = pkg.manifest;
   if (m.package !== a.package) throw new HttpError(400, `the package is ${m.package}, not ${a.package}`);
   const code = Number(m.versionCode || 0);
-  const prev = latest(a.package);
+  // The build: "desktop" apps (astraOS Desktop only) and "mobile" ones (phones, and desktops in a phone window)
+  // are two builds of one app, each with its own versionCode sequence (the same number in both is fine).
+  if (m.target !== undefined && !TARGETS.includes(m.target)) throw new HttpError(400, `target must be one of ${TARGETS.join(", ")}`);
+  const target = m.target === "desktop" ? "desktop" : "mobile";
+  const prev = latest(a.package, target);
   if (!Number.isInteger(code) || code < 1) throw new HttpError(400, "versionCode must be a positive integer");
   if (prev && code <= prev.version_code) throw new HttpError(409, `versionCode must be greater than ${prev.version_code}`);
   let findings;
@@ -439,12 +475,12 @@ async function publishVersion(a, body, notes, { system = false } = {}) {
   const warnings = findings.filter((f) => f.severity !== "error");
   // The check takes a moment: the app may have been removed, or this versionCode published, meanwhile.
   if (!q("SELECT 1 FROM apps WHERE package = ?").get(a.package)) throw new HttpError(404, "no such app");
-  const newest = latest(a.package);
+  const newest = latest(a.package, target);
   if (newest && code <= newest.version_code) throw new HttpError(409, `versionCode must be greater than ${newest.version_code}`);
   fs.mkdirSync(path.join(FILES.apps, a.package), { recursive: true });
-  fs.writeFileSync(path.join(FILES.apps, a.package, `${code}.apkg`), body);
-  q("INSERT INTO versions (package, version_code, version, size, sha256, notes, manifest, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(a.package, code, clean(m.version, 30) || String(code), body.length, pkg.sha256, notes, JSON.stringify(m), now());
+  fs.writeFileSync(path.join(FILES.apps, a.package, fileName({ version_code: code, target })), body);
+  q("INSERT INTO versions (package, target, version_code, version, size, sha256, notes, manifest, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(a.package, target, code, clean(m.version, 30) || String(code), body.length, pkg.sha256, notes, JSON.stringify(m), now());
   // First upload: take the icon from the package.
   if (!a.has_icon && m.icon) {
     const icon = pkg.file(m.icon);
@@ -454,7 +490,7 @@ async function publishVersion(a, body, notes, { system = false } = {}) {
     }
   }
   q("UPDATE apps SET updated = ? WHERE package = ?").run(now(), a.package);
-  return { version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [], warnings };
+  return { target, version: m.version, versionCode: code, sha256: pkg.sha256, permissions: m.permissions || [], warnings };
 }
 
 // Upload a new version: the raw .apkg as the request body. ?system=1 (admins,
@@ -475,8 +511,9 @@ r.put("/api/dev/apps/:pkg/versions", async (req, res, p) => {
 r.delete("/api/dev/apps/:pkg/versions/:code", async (req, res, p) => {
   const s = need(req, "developer");
   const a = ownApp(s, p.pkg);
-  q("DELETE FROM versions WHERE package = ? AND version_code = ?").run(a.package, Number(p.code));
-  fs.rmSync(path.join(FILES.apps, a.package, `${Number(p.code)}.apkg`), { force: true });
+  const target = new URL(req.url, "http://x").searchParams.get("target") === "desktop" ? "desktop" : "mobile";
+  q("DELETE FROM versions WHERE package = ? AND target = ? AND version_code = ?").run(a.package, target, Number(p.code));
+  fs.rmSync(path.join(FILES.apps, a.package, fileName({ version_code: Number(p.code), target })), { force: true });
   send(res, 200, { ok: true });
 });
 
@@ -508,7 +545,7 @@ r.delete("/api/dev/apps/:pkg/screenshots", async (req, res, p) => {
 
 // ---- AstraID: devices and Find My Device ----------------------------------------------------
 function deviceView(d) {
-  return { id: d.id, name: d.name, model: d.model, os: d.os, findMy: !!d.find_my, lastSeen: d.last_seen,
+  return { id: d.id, name: d.name, model: d.model, os: d.os, kind: d.kind, findMy: !!d.find_my, lastSeen: d.last_seen,
            report: d.report ? JSON.parse(d.report) : null, created: d.created };
 }
 
@@ -623,6 +660,9 @@ r.delete("/api/id/contacts", async (req, res) => {
   send(res, 200, { ok: true });
 });
 
+// ---- phones and desktops: Phone Linker and PetalDrop (lib/link.js) ----------------------------
+registerLink(r, { db, need, needDevice, now, clean, MASTER });
+
 // ---- WhatsAstra: WhatsApp through OpenWA (lib/whatsapp.js) ----------------------------------
 registerWhatsApp(r, { db, needDevice, env });
 
@@ -677,7 +717,7 @@ async function seedApps() {
             .run(clean(meta.story.eyebrow, 60), clean(meta.story.title, 120), clean(meta.story.subtitle, 200), clean(meta.story.body, 8000),
                  JSON.stringify([m.package]), meta.story.color || "#25D366", now());
       }
-      const prev = latest(m.package);
+      const prev = latest(m.package, m.target === "desktop" ? "desktop" : "mobile");
       if (!prev || Number(m.versionCode) > prev.version_code) {
         const { warnings } = await publishVersion(a, body, clean(meta.notes || "", 4000), { system: true });
         console.log(`seed: published ${m.package} ${m.version}${warnings.length ? ` (${warnings.length} design warning(s))` : ""}`);

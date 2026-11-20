@@ -23,6 +23,8 @@ ALLOWED_IMPORTS = {
     "QtQuick.Effects", "QtMultimedia", "QtPositioning", "QtSensors",
     "Astra.Core", "Astra.Controls", "Astra.Animation",
 }
+# Only for apps with "target": "desktop" (they never run on the phone).
+DESKTOP_ONLY_IMPORTS = {"Astra.Desktop"}
 SYSTEM_ONLY_IMPORTS = {"QtWebEngine", "QtWebView", "QtWebChannel"}
 FORBIDDEN_IMPORTS = {
     "QtQuick.Controls": "use Astra.Controls (Button, Switch, TextField, Slider, Sheet...)",
@@ -69,6 +71,9 @@ def _manifest(app_dir, problems):
     except (OSError, ValueError) as e:
         problems.append(Problem("app.json", 1, "error", "E100", f"cannot read the manifest: {e}"))
         return None
+    target = manifest.get("target", "mobile")
+    if target not in ("mobile", "desktop"):
+        problems.append(Problem("app.json", 1, "error", "E102", "'target' must be \"mobile\" or \"desktop\""))
     accent = manifest.get("accent")
     if accent is not None and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(accent)):
         problems.append(Problem("app.json", 1, "error", "E101", "'accent' must be a colour like #FF375F"))
@@ -91,6 +96,7 @@ def check_app(app_dir, system=False, files=None):
     problems = []
     manifest = _manifest(app_dir, problems)
     system_app = system
+    desktop_app = (manifest or {}).get("target") == "desktop"
     accent = (manifest or {}).get("accent", "").lower()
 
     for rel, full in (_all_files(app_dir) if files is None else files):
@@ -118,6 +124,11 @@ def check_app(app_dir, system=False, files=None):
                 module = m.group(1)
                 if module in FORBIDDEN_IMPORTS:
                     problems.append(Problem(rel, n, "error", "E010", f"import {module}: {FORBIDDEN_IMPORTS[module]}"))
+                elif module in DESKTOP_ONLY_IMPORTS:
+                    if not desktop_app:
+                        problems.append(Problem(rel, n, "error", "E013",
+                                                f"import {module}: only apps with \"target\": \"desktop\" "
+                                                "can use it (a mobile app also runs on the phone)"))
                 elif module in SYSTEM_ONLY_IMPORTS:
                     if not system_app:
                         problems.append(Problem(rel, n, "error", "E011",

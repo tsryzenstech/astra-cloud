@@ -35,6 +35,19 @@ plus Python 3 for the design check of uploaded apps.
 
 **Backups:** copy the `data/` folder (database and apkg files) and keep `MASTER_KEY` somewhere safe.
 
+## astraOS Desktop: desktop apps, phones and desktops
+
+- **One app, one page, two builds.** `app.json` has `"target": "mobile"` (the default: phones, and desktops in a phone shaped window)
+  or `"desktop"` (astraOS Desktop only). A package may be published as both: they are two builds of one app, with one Market page,
+  each version with up to one build per target (the same `versionCode` is fine across targets). `/api/store/index.json?target=desktop|mobile`
+  (or the runtime's User-Agent, `astraOS/<version> (<package>; desktop; ...)`) gives the asking device its build: a desktop the desktop
+  build or, without one, the mobile build; a phone the mobile build only. Downloads are `<versionCode>.apkg` and `<versionCode>.desktop.apkg`.
+- **AstraID has phones and desktops.** A device signs in with `device.kind` (`phone` | `desktop`). Phone Linker (`lib/link.js`) links one phone
+  with one desktop of an account (`/api/device/link`) and carries notifications, contacts and photos between them (`/api/link/send`,
+  `/api/link/events`, long poll; kept encrypted with the user's data key until fetched, 24 h at most; **not end-to-end encrypted**).
+  PetalDrop's server part: `/api/device/lan`, `/api/device/petal` (the account's shared secret and where its devices listen).
+- `node scripts/smoke-desktop.mjs ../astra` starts the server on a scratch directory and checks all of it.
+
 ## WhatsAstra: WhatsApp through OpenWA
 
 WhatsAstra is a native astraOS app; the WhatsApp protocol runs here, in

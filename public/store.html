@@ -26,7 +26,7 @@ try {
         <div class="muted">${esc(a.developer)}</div>
         <p class="muted" style="margin:8px 0 14px">${esc(a.summary || "")}</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <a class="btn" href="${esc(a.url)}">Download</a>
+          ${(a.variants || []).length ? a.variants.map((v) => `<a class="btn${v.target === a.target ? "" : " soft"}" href="${esc(v.url)}">Download for ${v.target === "desktop" ? "desktop" : "phone"}</a>`).join("") : `<a class="btn" href="${esc(a.url)}">Download</a>`}
           ${a.website ? `<a class="btn soft" href="${esc(a.website)}" rel="noopener">Website</a>` : ""}
         </div>
       </div>
@@ -34,13 +34,14 @@ try {
     <div class="facts">
       <div><b>${esc(a.category)}</b><span>Category</span></div>
       <div><b>${esc(a.version)}</b><span>Version</span></div>
+      <div><b>${(a.targets || ["mobile"]).map((t) => t === "desktop" ? "Desktop" : "Phone").join(" · ")}</b><span>Runs on</span></div>
       <div><b>${size(a.size)}</b><span>Size</span></div>
       <div><b>${a.downloads}</b><span>Downloads</span></div>
     </div>
     ${shots.length ? `<section class="block"><div class="shots">${shots.map((s) => `<img src="${esc(s)}" alt="" loading="lazy">`).join("")}</div></section>` : ""}
     <section class="block"><h2>About</h2><p class="muted" style="white-space:pre-wrap;max-width:760px">${esc(a.description || a.summary)}</p></section>
     <section class="block"><h2>How to install</h2>
-      <div class="panel how"><div class="num">1</div><div><b>On your phone</b><br><span class="muted">Open Market, find ${esc(a.name)} and tap Get.</span></div></div>
+      <div class="panel how"><div class="num">1</div><div><b>On your phone or computer</b><br><span class="muted">Open Market, find ${esc(a.name)} and tap Get: this page is the same on both, and each gets its own version${(a.targets || []).length === 1 && a.targets[0] === "desktop" ? " (this app is for astraOS Desktop only)" : (a.targets || []).length === 1 ? " (on a computer it opens in a window shaped like a phone)" : ""}.</span></div></div>
       <div class="panel how" style="margin-top:10px"><div class="num">2</div><div><b>Or from a file</b><br><span class="muted">Download the package above, then open it with Files on your astraOS phone.</span></div></div>
     </section>
     <section class="block"><h2>What's new</h2><div class="panel versions">${a.versions.map((v) => `
